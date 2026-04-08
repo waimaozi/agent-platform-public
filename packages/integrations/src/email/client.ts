@@ -30,11 +30,11 @@ export class SmtpEmailClient implements EmailClient {
       port: options?.port ?? Number(process.env.SMTP_PORT ?? 587),
       secure: false,
       auth: {
-        user: options?.user ?? process.env.SMTP_USER ?? "mira.wmz.00@gmail.com",
+        user: options?.user ?? process.env.SMTP_USER ?? "your-email@gmail.com",
         pass: options?.pass ?? process.env.SMTP_PASS ?? ""
       }
     });
-    this.from = options?.from ?? process.env.SMTP_FROM ?? "Mira <mira.wmz.00@gmail.com>";
+    this.from = options?.from ?? process.env.SMTP_FROM ?? "Assistant <your-email@gmail.com>";
   }
 
   async send(input: SendEmailInput): Promise<void> {

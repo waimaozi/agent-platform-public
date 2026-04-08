@@ -732,25 +732,25 @@ async function handleServiceAction(input: {
     });
     summary = `Письмо отправлено на ${input.action.message.to}.`;
   } else if (input.action.type === "email_read") {
-    const response = await safeCallWebhook(input.n8nClient, "mira-email-read", { taskId: input.taskId });
+    const response = await safeCallWebhook(input.n8nClient, "agent-email-read", { taskId: input.taskId });
     await appendTaskEvent({
       taskId: input.taskId,
       type: "service.email.read",
       actor: "executor",
       payload: toPrismaJson({
-        webhook: "mira-email-read",
+        webhook: "agent-email-read",
         response
       })
     });
     summary = "Email reading via n8n — webhook not configured yet. Use /email send to send.";
   } else {
-    const response = await safeCallWebhook(input.n8nClient, "mira-calendar-events", { taskId: input.taskId });
+    const response = await safeCallWebhook(input.n8nClient, "agent-calendar-events", { taskId: input.taskId });
     await appendTaskEvent({
       taskId: input.taskId,
       type: "service.calendar.read",
       actor: "executor",
       payload: toPrismaJson({
-        webhook: "mira-calendar-events",
+        webhook: "agent-calendar-events",
         response
       })
     });

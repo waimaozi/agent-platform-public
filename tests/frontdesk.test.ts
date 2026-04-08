@@ -90,7 +90,7 @@ describe("MockFrontdesk", () => {
                   classification: "task_request",
                   replyMode: "escalate_supervisor",
                   scope: "task",
-                  entities: { repo: "openclaw/agent-platform" },
+                  entities: { repo: "user/agent-platform" },
                   taskBrief: "Fix webhook task routing",
                   autoReply: null
                 })

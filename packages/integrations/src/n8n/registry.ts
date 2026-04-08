@@ -10,24 +10,24 @@ export interface N8nWorkflow {
 export const N8N_WORKFLOWS: N8nWorkflow[] = [
   {
     id: "zmJ2QkMZiAYrqiXz",
-    name: "Chemitech Mail Agent",
-    webhookPath: "imap-agent",
+    name: "Example Mail Agent",
+    webhookPath: "mail-agent",
     active: true,
-    description: "Send emails from Chemitech addresses (service@, info@, letters@, education@)"
+    description: "Send emails from ExampleCorp addresses (service@, info@, letters@, education@)"
   },
   {
     id: "NRp0UCIFeA6QxgBk",
-    name: "Mira CRM Lead Capture",
-    webhookPath: "mira-crm-lead",
+    name: "CRM Lead Capture",
+    webhookPath: "crm-lead",
     active: true,
     description: "Capture and store CRM leads"
   },
   {
     id: "wfRfybltF8BNjyji",
-    name: "Chemitech SGR Bot",
-    webhookPath: "chemitech-test",
+    name: "Example Chat Bot",
+    webhookPath: "example-chat",
     active: true,
-    description: "Answer questions about Chemitech professional chemistry products"
+    description: "Answer questions about ExampleCorp professional chemistry products"
   },
   {
     id: "oF9VaOBm4ZB0AJxf",
@@ -52,10 +52,10 @@ export const N8N_WORKFLOWS: N8nWorkflow[] = [
   },
   {
     id: "QGQ7yreibLk6JrgW",
-    name: "ByPlan Lead Form",
+    name: "ExampleProject Lead Form",
     webhookPath: "byplan-lead",
     active: true,
-    description: "Process ByPlan website lead submissions"
+    description: "Process ExampleProject website lead submissions"
   }
 ];
 
@@ -86,13 +86,13 @@ export function formatN8nWorkflowStatus(workflow: N8nWorkflow): string {
 export function getN8nWorkflowBundleDescription(workflow: N8nWorkflow): string {
   switch (workflow.id) {
     case "zmJ2QkMZiAYrqiXz":
-      return "send emails from Chemitech addresses";
+      return "send emails from ExampleCorp addresses";
     case "NRp0UCIFeA6QxgBk":
       return "capture leads";
     case "wfRfybltF8BNjyji":
       return "answer chemistry product questions";
     case "QGQ7yreibLk6JrgW":
-      return "process ByPlan leads";
+      return "process ExampleProject leads";
     default:
       return workflow.description;
   }

@@ -29,7 +29,7 @@ export class PrismaBundleBuilder implements BundleBuilder {
     private readonly db: PrismaClient = prisma,
     options: PrismaBundleBuilderOptions = {}
   ) {
-    this.soulPath = options.soulPath ?? process.env.MIRA_SOUL_PATH ?? "/home/openclaw/mira-soul/identity/SOUL.md";
+    this.soulPath = options.soulPath ?? process.env.MIRA_SOUL_PATH ?? "/home/user/agent-soul/identity/SOUL.md";
     this.secretsService = options.secretsService;
   }
 
@@ -52,7 +52,7 @@ export class PrismaBundleBuilder implements BundleBuilder {
 
     const serviceLines = [
       "Available services:",
-      "- email (SMTP send via mira.wmz.00@gmail.com)",
+      "- email (SMTP send via agent.wmz.00@gmail.com)",
       "- calendar (via n8n webhook, not yet configured)"
     ];
     if (this.secretsService) {
@@ -285,7 +285,7 @@ export class PrismaBundleBuilder implements BundleBuilder {
 }
 
 const SYSTEM_POLICY_TEXT = [
-  "You are Mira, the adaptive orchestrator fronted by scoped memory.",
+  "You are Agent, the adaptive orchestrator fronted by scoped memory.",
   "Respect approval flow, policy checks, and cost accounting.",
   "Do not assume long chat history exists; work from the provided bundle.",
   "Known tools and services: telegram, email via SMTP, calendar/email read via n8n webhooks.",

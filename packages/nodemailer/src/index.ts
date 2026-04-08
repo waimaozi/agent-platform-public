@@ -161,7 +161,7 @@ function expectCode(response: { code: number; text: string }, expected: number) 
 }
 
 function buildMimeMessage(input: TransportMailOptions) {
-  const boundary = `mira-${Date.now().toString(16)}`;
+  const boundary = `agent-${Date.now().toString(16)}`;
   const plainBody = normalizeSmtpBody(input.text ?? input.html ?? "");
   const htmlBody = input.html ? normalizeSmtpBody(input.html) : null;
 

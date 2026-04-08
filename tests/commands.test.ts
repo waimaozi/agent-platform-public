@@ -193,12 +193,12 @@ describe("scoped memory commands", () => {
       maybeHandleScopedMemoryCommand({
         userId: "user-1",
         chatId: "chat-1",
-        text: "/email send letters@chemitech.ru Subject | Body text",
+        text: "/email send letters@example.ru Subject | Body text",
         services: { emailClient, n8nClient }
       })
-    ).resolves.toContain("Chemitech mail agent");
+    ).resolves.toContain("ExampleCorp mail agent");
     expect(n8nClient.callWebhook).toHaveBeenCalledWith("imap-agent", {
-      to: "letters@chemitech.ru",
+      to: "letters@example.ru",
       subject: "Subject",
       body: "Body text"
     });
@@ -211,7 +211,7 @@ describe("scoped memory commands", () => {
         services: { emailClient, n8nClient }
       })
     ).resolves.toContain("Email reading via n8n");
-    expect(n8nClient.callWebhook).toHaveBeenCalledWith("mira-email-read", {
+    expect(n8nClient.callWebhook).toHaveBeenCalledWith("agent-email-read", {
       userId: "user-1",
       chatId: "chat-1"
     });
@@ -224,7 +224,7 @@ describe("scoped memory commands", () => {
         services: { emailClient, n8nClient }
       })
     ).resolves.toContain("Calendar via n8n");
-    expect(n8nClient.callWebhook).toHaveBeenCalledWith("mira-calendar-events", {
+    expect(n8nClient.callWebhook).toHaveBeenCalledWith("agent-calendar-events", {
       userId: "user-1",
       chatId: "chat-1"
     });
@@ -247,13 +247,13 @@ describe("scoped memory commands", () => {
           n8nClient
         }
       })
-    ).resolves.toContain("Chemitech SGR Bot [active]");
+    ).resolves.toContain("ExampleCorp SGR Bot [active]");
 
     await expect(
       maybeHandleScopedMemoryCommand({
         userId: "user-1",
         chatId: "chat-1",
-        text: "/n8n call chemitech-sgr {\"query\":\"какие средства для дезинфекции?\"}",
+        text: "/n8n call example-sgr {\"query\":\"какие средства для дезинфекции?\"}",
         services: {
           emailClient: { send: vi.fn(async () => undefined) },
           n8nClient
@@ -261,7 +261,7 @@ describe("scoped memory commands", () => {
       })
     ).resolves.toBe("SGR answer");
 
-    expect(n8nClient.callWebhook).toHaveBeenCalledWith("chemitech-test", {
+    expect(n8nClient.callWebhook).toHaveBeenCalledWith("example-test", {
       query: "какие средства для дезинфекции?"
     });
   });

@@ -1,10 +1,10 @@
 {
-  "name": "mira-calendar-events",
+  "name": "agent-calendar-events",
   "nodes": [
     {
       "parameters": {
         "httpMethod": "POST",
-        "path": "mira-calendar-events",
+        "path": "agent-calendar-events",
         "responseMode": "responseNode"
       },
       "id": "Webhook_Calendar_Events",
@@ -15,7 +15,7 @@
         260,
         300
       ],
-      "webhookId": "mira-calendar-events"
+      "webhookId": "agent-calendar-events"
     },
     {
       "parameters": {

@@ -14,16 +14,16 @@ describe("n8n registry", () => {
       "QGQ7yreibLk6JrgW"
     ]);
     expect(getActiveN8nWorkflows().map((workflow) => workflow.name)).toEqual([
-      "Chemitech Mail Agent",
-      "Mira CRM Lead Capture",
-      "Chemitech SGR Bot",
-      "ByPlan Lead Form"
+      "ExampleCorp Mail Agent",
+      "Agent CRM Lead Capture",
+      "ExampleCorp SGR Bot",
+      "ExampleProject Lead Form"
     ]);
   });
 
   it("resolves workflows by slug, webhook path, and id", () => {
-    expect(findN8nWorkflow("chemitech-sgr")?.webhookPath).toBe("chemitech-test");
-    expect(findN8nWorkflow("imap-agent")?.name).toBe("Chemitech Mail Agent");
-    expect(findN8nWorkflow("QGQ7yreibLk6JrgW")?.name).toBe("ByPlan Lead Form");
+    expect(findN8nWorkflow("example-sgr")?.webhookPath).toBe("example-test");
+    expect(findN8nWorkflow("imap-agent")?.name).toBe("ExampleCorp Mail Agent");
+    expect(findN8nWorkflow("QGQ7yreibLk6JrgW")?.name).toBe("ExampleProject Lead Form");
   });
 });

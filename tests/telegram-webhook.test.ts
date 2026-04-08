@@ -5,7 +5,7 @@ describe("telegram webhook", () => {
     const { getPresetTelegramCommandMessage } = await import("../apps/api/src/routes/telegram-webhook.js");
     const message = getPresetTelegramCommandMessage("/start");
 
-    expect(message).toContain("Привет! Я Мира");
+    expect(message).toContain("Привет! Я Ассистент");
     expect(message).toContain("/help — список всех команд");
   });
 });

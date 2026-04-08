@@ -24,7 +24,7 @@ export interface FailurePatternAlert {
   suggestedFix: string;
 }
 
-export async function runMiraCheckinJob(
+export async function runAgentCheckinJob(
   input: {
     db?: PrismaClient;
     telegramClient?: Pick<TelegramClient, "sendMessage">;
@@ -134,7 +134,7 @@ export async function runMiraCheckinJob(
 
       await appendTaskEvent({
         taskId,
-        type: "mira.self_heal_alert",
+        type: "agent.self_heal_alert",
         actor: "system",
         payload: {
           ...failureAlert,
@@ -155,7 +155,7 @@ export async function runMiraCheckinJob(
   const taskId = await ensureCheckinEventTask(db);
   await appendTaskEvent({
     taskId,
-    type: "mira.checkin",
+    type: "agent.checkin",
     actor: "system",
     payload: {
       reasons: heuristics.reasons,
@@ -186,7 +186,7 @@ export async function runMiraCheckinJob(
 
     await appendTaskEvent({
       taskId,
-      type: "mira.self_heal_alert",
+      type: "agent.self_heal_alert",
       actor: "system",
       payload: {
         ...failureAlert,
@@ -257,7 +257,7 @@ export function evaluateCheckinHeuristics(input: {
 
 export function composeCheckinMessage(result: CheckinHeuristicsResult): string {
   const lines = [
-    "Mira check-in",
+    "Agent check-in",
     `24h tasks: ${result.summary.completed} completed, ${result.summary.failed} failed, ${result.summary.pending} pending`,
     `Why now: ${result.reasons.join("; ")}`
   ];
@@ -387,7 +387,7 @@ async function ensureCheckinEventTask(db: PrismaClient): Promise<string> {
   const existing = await db.task.findFirst({
     where: {
       channel: "admin",
-      threadId: "mira-checkin"
+      threadId: "agent-checkin"
     },
     orderBy: { updatedAt: "desc" },
     select: { id: true }
@@ -419,15 +419,15 @@ async function ensureCheckinEventTask(db: PrismaClient): Promise<string> {
   const user = await db.user.upsert({
     where: {
       externalId_channel: {
-        externalId: "mira-system",
+        externalId: "agent-system",
         channel: "admin"
       }
     },
     update: {},
     create: {
-      externalId: "mira-system",
+      externalId: "agent-system",
       channel: "admin",
-      username: "mira-system"
+      username: "agent-system"
     },
     select: { id: true }
   });
@@ -435,21 +435,21 @@ async function ensureCheckinEventTask(db: PrismaClient): Promise<string> {
     data: {
       userId: user.id,
       channel: "admin",
-      threadId: "mira-checkin",
-      title: "Mira proactive check-in log",
-      rawInput: "mira-checkin",
-      normalizedInput: "mira-checkin",
+      threadId: "agent-checkin",
+      title: "Agent proactive check-in log",
+      rawInput: "agent-checkin",
+      normalizedInput: "agent-checkin",
       state: "COMPLETED",
       budgetPolicyId: policyId,
       metadata: {
         systemInternal: true,
-        kind: "mira-checkin"
+        kind: "agent-checkin"
       },
       taskEvents: {
         create: {
           type: "task.created",
           actor: "system",
-          payload: { source: "mira-checkin" }
+          payload: { source: "agent-checkin" }
         }
       }
     },

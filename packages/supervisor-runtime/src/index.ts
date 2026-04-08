@@ -262,9 +262,9 @@ export class ClaudeCodeSupervisorRuntime implements SupervisorRuntime {
       "--no-session-persistence",
       "--dangerously-skip-permissions",
       "--add-dir",
-      "/home/openclaw/mira-soul",
+      "/home/user/agent-soul",
       "--add-dir",
-      "/home/openclaw/.openclaw/workspace"
+      "/home/user/.user/workspace"
     ];
 
     if (this.isReadableFile(this.opusSystemPromptPath)) {

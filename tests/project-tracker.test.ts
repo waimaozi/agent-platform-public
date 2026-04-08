@@ -37,7 +37,7 @@ describe("project tracker", () => {
       "**Description:** Main platform",
       "**Next steps:** Ship it",
       "",
-      "## 2. ByPlan",
+      "## 2. ExampleProject",
       "**Status:** On hold - waiting for partner",
       "**Description:** Apartment planning"
     ].join("\n");

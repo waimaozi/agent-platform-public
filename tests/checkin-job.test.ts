@@ -36,7 +36,7 @@ describe("checkin heuristics", () => {
     expect(result.reasons).toEqual(
       expect.arrayContaining(["1 stuck task", "1 deadline within 3 days"])
     );
-    expect(composeCheckinMessage(result)).toContain("Mira check-in");
+    expect(composeCheckinMessage(result)).toContain("Agent check-in");
   });
 
   it("stays silent when recent work is healthy", () => {

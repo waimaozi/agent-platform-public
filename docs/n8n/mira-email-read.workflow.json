@@ -1,10 +1,10 @@
 {
-  "name": "mira-email-read",
+  "name": "agent-email-read",
   "nodes": [
     {
       "parameters": {
         "httpMethod": "POST",
-        "path": "mira-email-read",
+        "path": "agent-email-read",
         "responseMode": "responseNode"
       },
       "id": "Webhook_Email_Read",
@@ -15,7 +15,7 @@
         260,
         300
       ],
-      "webhookId": "mira-email-read"
+      "webhookId": "agent-email-read"
     },
     {
       "parameters": {

@@ -35,7 +35,7 @@ describe("PrismaBundleBuilder", () => {
     const soulPath = join(tempDir, "SOUL.md");
 
     try {
-      await writeFile(soulPath, "You are Mira from SOUL.md.\nProtect scoped memory.", "utf8");
+      await writeFile(soulPath, "You are Agent from SOUL.md.\nProtect scoped memory.", "utf8");
 
       const builder = new PrismaBundleBuilder(createBundleDb() as never, { soulPath });
       const bundle = await builder.build({
@@ -47,7 +47,7 @@ describe("PrismaBundleBuilder", () => {
       });
 
       expect(bundle.sections[0]?.name).toBe("policy/system");
-      expect(bundle.sections[0]?.content).toContain("You are Mira from SOUL.md.");
+      expect(bundle.sections[0]?.content).toContain("You are Agent from SOUL.md.");
       expect(bundle.sections[0]?.source).toBe(soulPath);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
@@ -75,16 +75,16 @@ describe("PrismaBundleBuilder", () => {
 
     const servicesSection = bundle.sections.find((section) => section.name === "available services");
     const workflowsSection = bundle.sections.find((section) => section.name === "n8n workflows");
-    expect(servicesSection?.content).toContain("- email (SMTP send via mira.wmz.00@gmail.com)");
+    expect(servicesSection?.content).toContain("- email (SMTP send via test@example.com)");
     expect(servicesSection?.content).toContain("- calendar (via n8n webhook, not yet configured)");
     expect(servicesSection?.content).toContain("- github");
     expect(servicesSection?.content).toContain("- n8n");
     expect(servicesSection?.content).not.toContain("TOKEN");
     expect(workflowsSection?.content).toContain("N8N Workflows (active):");
-    expect(workflowsSection?.content).toContain("- Chemitech Mail Agent (send emails from Chemitech addresses)");
-    expect(workflowsSection?.content).toContain("- Mira CRM Lead Capture (capture leads)");
-    expect(workflowsSection?.content).toContain("- Chemitech SGR Bot (answer chemistry product questions)");
-    expect(workflowsSection?.content).toContain("- ByPlan Lead Form (process ByPlan leads)");
+    expect(workflowsSection?.content).toContain("- ExampleCorp Mail Agent (send emails from ExampleCorp addresses)");
+    expect(workflowsSection?.content).toContain("- Agent CRM Lead Capture (capture leads)");
+    expect(workflowsSection?.content).toContain("- ExampleCorp SGR Bot (answer chemistry product questions)");
+    expect(workflowsSection?.content).toContain("- ExampleProject Lead Form (process ExampleProject leads)");
   });
 });
 

@@ -19,9 +19,9 @@ describe("HttpN8nClient", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const client = new HttpN8nClient("https://n8n.example.com", "api-key");
-    const result = await client.callWebhook("mira-calendar-events", { limit: 10 });
+    const result = await client.callWebhook("agent-calendar-events", { limit: 10 });
 
-    expect(fetchMock).toHaveBeenCalledWith("https://n8n.example.com/webhook/mira-calendar-events", {
+    expect(fetchMock).toHaveBeenCalledWith("https://n8n.example.com/webhook/agent-calendar-events", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

@@ -32,7 +32,7 @@ describe("SmtpEmailClient", () => {
       port: 587,
       secure: false,
       auth: {
-        user: "mira.wmz.00@gmail.com",
+        user: "test@example.com",
         pass: "env-pass"
       }
     });
@@ -45,7 +45,7 @@ describe("SmtpEmailClient", () => {
       port: 2525,
       user: "user@example.com",
       pass: "secret",
-      from: "Mira <mira@example.com>"
+      from: "Agent <agent@example.com>"
     });
 
     await client.send({
@@ -56,7 +56,7 @@ describe("SmtpEmailClient", () => {
     });
 
     expect(sendMailMock).toHaveBeenCalledWith({
-      from: "Mira <mira@example.com>",
+      from: "Agent <agent@example.com>",
       to: "user@recipient.test",
       subject: "Subject",
       text: "Plain body",

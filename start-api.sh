@@ -1,9 +1,9 @@
 #!/bin/bash
 set -a
-source /home/openclaw/agent-platform/.env
+source /home/user/agent-platform/.env
 set +a
-export PATH=/home/openclaw/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
-cd /home/openclaw/agent-platform
+export PATH=/home/user/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
+cd /home/user/agent-platform
 
 # Wait for connectivity
 for i in 1 2 3; do
@@ -11,4 +11,4 @@ for i in 1 2 3; do
   sleep 2
 done
 
-exec /home/openclaw/agent-platform/node_modules/.bin/tsx simple-bot.ts
+exec /home/user/agent-platform/node_modules/.bin/tsx simple-bot.ts

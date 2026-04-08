@@ -645,7 +645,7 @@ export async function maybeHandleScopedMemoryCommand(input: {
     }
 
     if (argument === "read") {
-      await triggerN8nWebhook(input.services?.n8nClient, "mira-email-read", {
+      await triggerN8nWebhook(input.services?.n8nClient, "agent-email-read", {
         userId: input.userId,
         chatId: input.chatId
       });
@@ -659,7 +659,7 @@ export async function maybeHandleScopedMemoryCommand(input: {
         emailInput
       });
       return delivery === "n8n"
-        ? `Письмо отправлено на ${emailInput.to} через Chemitech mail agent`
+        ? `Письмо отправлено на ${emailInput.to} через ExampleCorp mail agent`
         : `Письмо отправлено на ${emailInput.to}`;
     }
 
@@ -704,7 +704,7 @@ export async function maybeHandleScopedMemoryCommand(input: {
       return getCalendarHelpText();
     }
 
-    await triggerN8nWebhook(input.services?.n8nClient, "mira-calendar-events", {
+    await triggerN8nWebhook(input.services?.n8nClient, "agent-calendar-events", {
       userId: input.userId,
       chatId: input.chatId
     });
@@ -931,7 +931,7 @@ async function sendScopedMemoryEmail(input: {
     html?: string;
   };
 }): Promise<"smtp" | "n8n"> {
-  if (isChemitechRecipient(input.emailInput.to)) {
+  if (isExampleCorpRecipient(input.emailInput.to)) {
     await callRegisteredN8nWorkflow(input.services?.n8nClient, "imap-agent", input.emailInput);
     return "n8n";
   }
@@ -940,8 +940,8 @@ async function sendScopedMemoryEmail(input: {
   return "smtp";
 }
 
-function isChemitechRecipient(address: string): boolean {
-  return address.trim().toLowerCase().endsWith("@chemitech.ru");
+function isExampleCorpRecipient(address: string): boolean {
+  return address.trim().toLowerCase().endsWith("@example.ru");
 }
 
 function formatN8nCallResponse(workflowName: string, response: unknown): string {

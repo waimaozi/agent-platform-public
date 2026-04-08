@@ -377,7 +377,7 @@ function selectBanterReply(lower: string): string {
 }
 
 function buildNanoPrompt(message: string): string {
-  return `You are Mira's frontdesk assistant. Classify the user message and respond in JSON.
+  return `You are Agent's frontdesk assistant. Classify the user message and respond in JSON.
 User message: ${JSON.stringify(message)}
 
 Respond with ONLY valid JSON:
@@ -391,7 +391,7 @@ Respond with ONLY valid JSON:
 }
 
 Rules:
-- Greetings, thanks, small talk = banter, frontdesk_auto, reply warmly as Mira
+- Greetings, thanks, small talk = banter, frontdesk_auto, reply warmly as Agent
 - Questions about status/cost = status_query, frontdesk_auto
 - Slash commands = command, silent
 - Code/repo/bug/deploy/task requests = task_request, escalate_supervisor

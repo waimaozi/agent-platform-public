@@ -15,7 +15,7 @@ import { createLogger } from "@agent-platform/observability";
 import { PrismaSecretsService } from "@agent-platform/secrets-service";
 import { runSupervisor } from "@agent-platform/supervisor";
 import { ClaudeCodeSupervisorRuntime, MockSupervisorRuntime } from "@agent-platform/supervisor-runtime";
-import { runMiraCheckinJob } from "./checkin-job.js";
+import { runAgentCheckinJob } from "./checkin-job.js";
 import { reportTaskError } from "./error-reporter.js";
 import { buildFinalTelegramMessage } from "./final-task-message.js";
 import { cleanupStuckTasksOnStartup } from "./stuck-task-cleanup.js";
@@ -35,7 +35,7 @@ const coderRuntime = useRealCoder
   ? new CodexCliRuntime({
       command: codexPath,
       timeoutMs: 10 * 60 * 1000,
-      cwd: "/home/openclaw/agent-platform"
+      cwd: "/home/user/agent-platform"
     })
   : new MockCodexRuntime();
 const memoryFabric: MemoryFabric | null = scopedMemoryEnabled ? new PrismaMemoryFabric() : null;
@@ -223,10 +223,10 @@ async function startWorker() {
   if (scopedMemoryEnabled) {
     const queue = getTaskQueue();
     void queue.add(
-      "mira-checkin",
+      "agent-checkin",
       {},
       {
-        jobId: "mira-checkin",
+        jobId: "agent-checkin",
         repeat: {
           every: 4 * 60 * 60 * 1000
         },
@@ -234,19 +234,19 @@ async function startWorker() {
         removeOnFail: 20
       }
     ).catch((error) => {
-      logger.error({ err: error }, "Failed to register mira-checkin repeatable job");
+      logger.error({ err: error }, "Failed to register agent-checkin repeatable job");
     });
   }
 
   const worker = new Worker(
     TASK_QUEUE_NAME,
     async (job) => {
-      if (job.name === "mira-checkin") {
+      if (job.name === "agent-checkin") {
         if (!scopedMemoryEnabled) {
           return;
         }
 
-        await runMiraCheckinJob();
+        await runAgentCheckinJob();
         return;
       }
 
@@ -401,7 +401,7 @@ async function startWorker() {
         reportTaskError(taskId, message, chatId ?? "")
       ]);
     }).catch((reportError) => {
-      logger.error({ taskId, err: reportError }, "Failed to report task error to Mira admin chat");
+      logger.error({ taskId, err: reportError }, "Failed to report task error to Agent admin chat");
     });
   });
 }

@@ -9,7 +9,7 @@ import { z } from "zod";
 // ============================================================
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
 const CLAUDE_PATH = process.env.CLAUDE_CODE_PATH ?? "claude";
-const SOUL_PATH = process.env.MIRA_SOUL_PATH ?? "/home/openclaw/mira-soul/identity/FULL-CONTEXT.md";
+const SOUL_PATH = process.env.MIRA_SOUL_PATH ?? "/home/user/agent-soul/identity/FULL-CONTEXT.md";
 const ADMIN_CHAT_ID = process.env.TELEGRAM_BOOTSTRAP_CHAT_ID ?? "";
 const PORT = Number(process.env.API_PORT ?? 3000);
 const HOST = process.env.API_HOST ?? "0.0.0.0";
@@ -69,8 +69,8 @@ function callClaude(prompt: string): Promise<{ text: string; cost: number; token
       "--output-format", "json",
       "--no-session-persistence",
       "--dangerously-skip-permissions",
-      "--add-dir", "/home/openclaw/mira-soul",
-      "--add-dir", "/home/openclaw/.openclaw/workspace",
+      "--add-dir", "/home/user/agent-soul",
+      "--add-dir", "/home/user/workspace",
       "--max-turns", "50",
     ];
 
@@ -128,7 +128,7 @@ const HELP_TEXT = `Команды:
 
 Или просто напиши вопрос — я разберусь.`;
 
-const WELCOME_TEXT = `Привет! Я Мира — AI-ассистент.
+const WELCOME_TEXT = `Привет! Я Ассистент — AI-ассистент.
 
 ${HELP_TEXT}`;
 
@@ -317,7 +317,7 @@ app.post("/webhooks/telegram", async (request, reply) => {
   }
 });
 
-const MEMORY_LOG = "/home/openclaw/mira-soul/memory/session-log.md";
+const MEMORY_LOG = "/home/user/agent-soul/memory/session-log.md";
 
 function getRecentMemory(): string {
   try {
