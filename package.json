@@ -1,0 +1,33 @@
+{
+  "name": "agent-platform",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@10.0.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev:api": "pnpm --filter @apps/api dev",
+    "dev:worker": "pnpm --filter @apps/worker dev",
+    "dev:telegram-bot": "pnpm --filter @apps/telegram-bot dev",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prisma:generate": "prisma generate",
+    "prisma:push": "prisma db push",
+    "lint": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.1",
+    "@types/nodemailer": "workspace:*",
+    "prisma": "^6.6.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.8.3",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^3.1.1"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.6.0",
+    "fastify": "^5.2.1",
+    "nodemailer": "workspace:*",
+    "zod": "^3.24.2"
+  }
+}

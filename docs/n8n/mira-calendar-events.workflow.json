@@ -1,0 +1,77 @@
+{
+  "name": "mira-calendar-events",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mira-calendar-events",
+        "responseMode": "responseNode"
+      },
+      "id": "Webhook_Calendar_Events",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ],
+      "webhookId": "mira-calendar-events"
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "jsonOutput": "{\n  \"status\": \"not_configured\",\n  \"message\": \"Calendar workflow placeholder. Connect Google Calendar or CalDAV here.\",\n  \"requestedAt\": \"={{$now.toISO()}}\"\n}"
+      },
+      "id": "Set_Calendar_Response",
+      "name": "Prepare Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}"
+      },
+      "id": "Respond_Calendar_Events",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        780,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false
+}

@@ -1,0 +1,25 @@
+{
+  "name": "@apps/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/main.ts",
+  "dependencies": {
+    "@agent-platform/bundle-builder": "workspace:*",
+    "@agent-platform/contracts": "workspace:*",
+    "@agent-platform/core": "workspace:*",
+    "@agent-platform/frontdesk": "workspace:*",
+    "@agent-platform/integrations": "workspace:*",
+    "@agent-platform/memory-fabric": "workspace:*",
+    "@agent-platform/observability": "workspace:*",
+    "@agent-platform/policy-engine": "workspace:*",
+    "@agent-platform/secrets-service": "workspace:*",
+    "@prisma/client": "^6.6.0",
+    "fastify": "^5.2.1",
+    "zod": "^3.24.2"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/main.ts"
+  }
+}

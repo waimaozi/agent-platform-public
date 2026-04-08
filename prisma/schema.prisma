@@ -1,0 +1,472 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Channel {
+  telegram
+  slack
+  admin
+}
+
+enum TaskState {
+  NEW
+  INTAKE_NORMALIZED
+  PLANNING
+  AWAITING_APPROVAL
+  RUNNING
+  VERIFYING
+  AWAITING_HUMAN
+  COMPLETED
+  FAILED
+  CANCELLED
+  PAUSED
+}
+
+enum Priority {
+  low
+  normal
+  high
+  urgent
+}
+
+enum ProjectStatus {
+  active
+  on_hold
+  completed
+  cancelled
+  planning
+}
+
+enum RoutingProfile {
+  cheap_first
+  balanced
+  quality_first
+  latency_first
+}
+
+enum Actor {
+  system
+  user
+  supervisor
+  researcher
+  coder
+  verifier
+  executor
+}
+
+enum MemoryScopeType {
+  junk
+  session_scratchpad
+  task
+  project
+  user_profile
+  pinned
+}
+
+enum MemoryStatus {
+  candidate
+  durable
+  superseded
+  forgotten
+}
+
+enum MessageClassification {
+  junk
+  banter
+  question
+  task_request
+  status_query
+  command
+  approval_response
+  context_update
+}
+
+enum ReplyMode {
+  frontdesk_auto
+  escalate_supervisor
+  escalate_with_context
+  silent
+}
+
+enum ApprovalStatus {
+  pending
+  approved
+  rejected
+  expired
+}
+
+enum ApprovalDecisionType {
+  approve
+  reject
+}
+
+enum PolicyPatchScope {
+  global
+  user
+  project
+}
+
+enum PolicyPatchType {
+  prompt_patch
+  playbook_patch
+  routing_patch
+}
+
+enum PolicyPatchStatus {
+  proposed
+  approved
+  rejected
+  applied
+  rolled_back
+}
+
+enum RiskLevel {
+  low
+  medium
+  high
+}
+
+enum Verbosity {
+  short
+  medium
+  long
+}
+
+enum Sensitivity {
+  high
+  medium
+  low
+}
+
+enum AutonomyPreference {
+  manual
+  balanced
+  high
+}
+
+enum NotifyStyle {
+  every_stage
+  major_only
+  final_only
+}
+
+enum SecretScope {
+  global
+  project
+  user
+}
+
+enum SecretAccessLevel {
+  supervisor_ref
+  coder_inject
+  executor_inject
+  direct_read
+}
+
+model User {
+  id                String          @id @default(uuid())
+  externalId        String
+  channel           Channel
+  username          String?
+  firstName         String?
+  lastName          String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  tasks             Task[]
+  userProfile       UserProfile?
+  rawEvents         RawEvent[]
+  memoryItems       MemoryItem[]
+  contextBundles    ContextBundle[]
+  approvalsDecided  Approval[]      @relation("ApprovalDecider")
+  serviceSecrets    ServiceSecret[]
+
+  @@unique([externalId, channel])
+  @@map("users")
+}
+
+model Task {
+  id               String              @id @default(uuid())
+  userId           String
+  channel          Channel
+  threadId         String
+  title            String
+  rawInput         String
+  normalizedInput  String
+  state            TaskState           @default(NEW)
+  repoRefs         String[]            @default([])
+  priority         Priority            @default(normal)
+  routingProfile   RoutingProfile      @default(balanced)
+  budgetPolicyId   String
+  projectProfileId String?
+  metadata         Json?
+  deadlineAt       DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  user             User                @relation(fields: [userId], references: [id])
+  budgetPolicy     BudgetPolicy        @relation(fields: [budgetPolicyId], references: [id])
+  projectProfile   ProjectProfile?     @relation(fields: [projectProfileId], references: [id])
+  taskEvents       TaskEvent[]
+  approvals        Approval[]
+  llmCallLogs      LlmCallLog[]
+  costSnapshots    TaskCostSnapshot[]
+  policyPatches    PolicyPatch[]
+  memoryItems      MemoryItem[]
+  contextBundles   ContextBundle[]
+
+  @@index([userId, state])
+  @@map("tasks")
+}
+
+model TaskEvent {
+  id        String   @id @default(uuid())
+  taskId     String
+  type      String
+  actor     Actor
+  payload   Json
+  createdAt DateTime @default(now())
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
+  @@map("task_events")
+}
+
+model Approval {
+  id              String               @id @default(uuid())
+  taskId          String
+  reason          String
+  requestedBy     Actor
+  status          ApprovalStatus       @default(pending)
+  decision        ApprovalDecisionType?
+  decidedByUserId String?
+  decidedAt       DateTime?
+  expiresAt       DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  task            Task                 @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  decidedBy       User?                @relation("ApprovalDecider", fields: [decidedByUserId], references: [id])
+
+  @@index([taskId, status])
+  @@map("approvals")
+}
+
+model UserProfile {
+  id                      String              @id @default(uuid())
+  userId                  String              @unique
+  language                String
+  verbosity               Verbosity
+  costSensitivity         Sensitivity
+  latencySensitivity      Sensitivity
+  autonomyPreference      AutonomyPreference
+  notifyStyle             NotifyStyle
+  preferredRoutingProfile RoutingProfile
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+  user                    User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_profiles")
+}
+
+model ProjectProfile {
+  id                   String         @id @default(uuid())
+  name                 String
+  status               ProjectStatus  @default(active)
+  deadline             DateTime?
+  priority             Priority       @default(normal)
+  blockers             String[]       @default([])
+  lastActivityAt       DateTime?
+  notes                String?
+  repoUrl              String?
+  packageManager       String?
+  buildCommand         String?
+  testCommand          String?
+  lintCommand          String?
+  typecheckCommand     String?
+  branchPolicy         String?
+  prStyle              String?
+  dangerousDirectories String[]       @default([])
+  knownPitfalls        String[]       @default([])
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  tasks                Task[]
+  policyPatches        PolicyPatch[]
+  memoryItems          MemoryItem[]
+  serviceSecrets       ServiceSecret[]
+
+  @@map("project_profiles")
+}
+
+model BudgetPolicy {
+  id                 String     @id @default(uuid())
+  name               String
+  isDefault          Boolean    @default(false)
+  maxTaskCostUsd     Float
+  maxTaskTokens      Int
+  maxOpusCalls       Int
+  maxCodexRuns       Int
+  maxWallTimeMinutes Int
+  warnAtPercent      Float
+  stopAtPercent      Float
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  tasks              Task[]
+
+  @@map("budget_policies")
+}
+
+model LlmCallLog {
+  id                 String   @id @default(uuid())
+  taskId             String?
+  subagentId         String
+  actor              Actor?
+  provider           String
+  model              String
+  purpose            String?
+  promptTokens       Int
+  completionTokens   Int
+  cachedTokens       Int      @default(0)
+  reasoningTokens    Int?
+  latencyMs          Int
+  estimatedCostUsd   Float
+  finalCostUsd       Float?
+  startedAt          DateTime
+  finishedAt         DateTime
+  createdAt          DateTime @default(now())
+  task               Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
+  @@map("llm_call_logs")
+}
+
+model RawEvent {
+  id             String                 @id @default(uuid())
+  userId         String
+  channel        Channel
+  threadId       String
+  messageText    String
+  messageId      String?
+  metadata       Json?
+  createdAt      DateTime               @default(now())
+  classification MessageClassification?
+  replyMode      ReplyMode?
+  scope          MemoryScopeType?
+  entities       Json?
+  taskBrief      String?
+  user           User                   @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([threadId, createdAt])
+  @@map("raw_events")
+}
+
+model MemoryItem {
+  id             String          @id @default(uuid())
+  scopeType      MemoryScopeType
+  scopeId        String?
+  memoryType     String
+  content        String
+  summary        String?
+  sourceEventIds String[]        @default([])
+  confidence     Float           @default(0.5)
+  importance     Float           @default(0.5)
+  status         MemoryStatus    @default(candidate)
+  ttlPolicy      String?
+  supersedesId   String?
+  conflictsWith  String[]        @default([])
+  evidenceRefs   String[]        @default([])
+  embedding      Float[]         @default([])
+  userId         String?
+  projectId      String?
+  taskId         String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  user           User?           @relation(fields: [userId], references: [id])
+  project        ProjectProfile? @relation(fields: [projectId], references: [id])
+  task           Task?           @relation(fields: [taskId], references: [id])
+  supersedes     MemoryItem?     @relation("MemorySupersedes", fields: [supersedesId], references: [id])
+  supersededBy   MemoryItem[]    @relation("MemorySupersedes")
+
+  @@index([scopeType, scopeId, status])
+  @@index([userId, scopeType, status])
+  @@index([taskId, status])
+  @@map("memory_items")
+}
+
+model ContextBundle {
+  id             String   @id @default(uuid())
+  taskId         String?
+  userId         String
+  purpose        String
+  bundleJson     Json
+  retrievalTrace Json
+  totalTokens    Int
+  createdAt      DateTime @default(now())
+  user           User     @relation(fields: [userId], references: [id])
+  task           Task?    @relation(fields: [taskId], references: [id])
+
+  @@index([userId, createdAt])
+  @@map("context_bundles")
+}
+
+model TaskCostSnapshot {
+  id                    String   @id @default(uuid())
+  taskId                String
+  totalInputTokens      Int
+  totalOutputTokens     Int
+  totalEstimatedCostUsd Float
+  totalWallTimeMs       Int
+  modelBreakdownJson    Json
+  createdAt             DateTime @default(now())
+  task                  Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
+  @@map("task_cost_snapshots")
+}
+
+model PolicyPatch {
+  id               String            @id @default(uuid())
+  taskId           String?
+  userId           String?
+  projectProfileId String?
+  scope            PolicyPatchScope
+  patchType        PolicyPatchType
+  rationale        String
+  expectedBenefit  String
+  riskLevel        RiskLevel
+  requiresApproval Boolean
+  status           PolicyPatchStatus @default(proposed)
+  diffJson         Json
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  task             Task?             @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  projectProfile   ProjectProfile?   @relation(fields: [projectProfileId], references: [id], onDelete: SetNull)
+
+  @@map("policy_patches")
+}
+
+model ServiceSecret {
+  id             String              @id @default(uuid())
+  serviceName    String
+  key            String
+  encryptedValue String
+  scope          SecretScope         @default(global)
+  projectId      String?
+  userId         String?
+  allowedActors  SecretAccessLevel[] @default([supervisor_ref])
+  description    String?
+  rotatedAt      DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  project        ProjectProfile?     @relation(fields: [projectId], references: [id])
+  user           User?               @relation(fields: [userId], references: [id])
+
+  @@unique([serviceName, key, scope, projectId, userId])
+  @@index([serviceName])
+  @@index([scope, projectId])
+  @@index([scope, userId])
+  @@map("service_secrets")
+}

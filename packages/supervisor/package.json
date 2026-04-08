@@ -1,0 +1,23 @@
+{
+  "name": "@agent-platform/supervisor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@agent-platform/codex-runtime": "workspace:*",
+    "@agent-platform/contracts": "workspace:*",
+    "@agent-platform/core": "workspace:*",
+    "@agent-platform/integrations": "workspace:*",
+    "@agent-platform/memory-service": "workspace:*",
+    "@agent-platform/model-gateway": "workspace:*",
+    "@agent-platform/observability": "workspace:*",
+    "@agent-platform/policy-engine": "workspace:*",
+    "@agent-platform/supervisor-runtime": "workspace:*",
+    "@prisma/client": "^6.6.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  }
+}
