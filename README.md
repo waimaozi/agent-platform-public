@@ -1,90 +1,135 @@
 # Agent Platform — AI Assistant with Telegram Interface
 
-A lightweight AI agent that connects to Telegram, filters noise cheaply, and uses Claude Code CLI for real work.
+A lightweight AI agent that connects to Telegram, filters noise cheaply, and uses Claude Code CLI for real work. With vector memory and knowledge graph for persistent context.
 
 ## Architecture
 
 ```
-Telegram message
-    │
-    ├── Regex: banter/junk? → auto-reply ($0)
-    ├── Regex: command? → handle directly ($0)
-    │
-    └── Real question → spawn claude -p "question"
-                         --dangerously-skip-permissions
-                         --system-prompt-file SOUL.md
-                         → parse response
-                         → send to Telegram
+User sends message to Telegram bot
+         │
+         ├── "Привет!" → Regex: banter → instant reply ($0)
+         ├── "👍"       → Regex: junk   → ignore ($0)
+         ├── "/help"    → Command       → handle directly ($0)
+         │
+         └── Real question/task
+              │
+              ├── Embed (Cohere) → store in Pinecone     ~$0.0001
+              ├── Extract triples (Groq) → Postgres       free
+              │
+              ├── Vector search → similar past context
+              ├── Graph query → connected entities (2-hop)
+              │
+              └── spawn claude -p "question + context"
+                   → Claude thinks, reads files, calls APIs
+                   → Response sent back to Telegram
 ```
 
-## Why this works
+## Three Memory Layers
 
-- **60% of messages are banter** — handled by regex for free
-- **No growing context** — each call is cold-start with a system prompt
-- **Claude Code CLI is the agent runtime** — file access, bash, git, web search built-in
-- **200 lines of code** — not 14,000
+### 1. System Prompt (SOUL.md + TOOLS.md)
+Loaded on every call. Defines personality and available tools.
+
+### 2. Vector Memory (Pinecone + Cohere)
+Every message is embedded and stored. On each question, the 5 most similar past interactions are retrieved and injected as context.
+- **Finds:** things semantically similar to the current question
+- **Cost:** ~$0.0001 per embed (Cohere), Pinecone free tier
+
+### 3. Knowledge Graph (Postgres + Groq)
+Every message is processed by a cheap model (Llama 3.1 8B via Groq) that extracts entity-relationship triples: (subject, predicate, object). Stored in Postgres. On each question, a 2-hop graph traversal finds connected entities.
+- **Finds:** things connected but not necessarily similar
+- **Cost:** free (Groq free tier)
+- **Example:** "ByPlan" → uses → "ArchiCAD" → expert → "Наталья" — connections vector search would miss
 
 ## Economics
 
-| Message type | Cost (API) | Cost (subscription) |
-|---|---|---|
-| Banter/commands | $0.00 | $0.00 |
-| Simple question | $0.04-0.08 | $0.00 |
-| Complex task (multi-tool) | $0.15-0.50 | $0.00 |
+| Message type | Vector | Graph | Claude | Total |
+|---|---|---|---|---|
+| Banter | — | — | — | $0.00 |
+| Simple question | $0.0001 | free | $0.04 | $0.04 |
+| Complex task | $0.0001 | free | $0.15-0.50 | $0.15-0.50 |
+| Question with memory context | $0.0001 | free | $0.04 | $0.04 |
 
-On Claude Max subscription ($100/mo): unlimited usage within rate limits.
+With memory: same question that cost $0.30 (Claude exploring files) costs $0.04 the second time (answer from memory).
+
+## Features
+
+- **Regex frontdesk** — 60% of messages handled for $0
+- **Vector memory** — semantic search across all past interactions
+- **Knowledge graph** — entity relationships via triple extraction
+- **File handling** — upload DOCX/PDF/images, auto-converts to text via pandoc
+- **Forum/topic support** — works in Telegram supergroups with topics
+- **Email sending** — direct SMTP via /email command
+- **Typing indicator** — "typing..." while Claude thinks
+- **Message splitting** — auto-splits long responses for Telegram's 4096 char limit
+- **Session log** — last 20 events as linear memory
+- **Pinned facts** — /pin to remember specific facts
+- **10 min timeout** — handles complex multi-tool tasks
+- **50 tool turns** — Claude can read files, curl APIs, run bash in one call
 
 ## Setup
 
-1. Create a Telegram bot via @BotFather
-2. Install Claude Code CLI: `npm install -g @anthropic-ai/claude-code`
-3. Login: `claude` (follow OAuth prompts)
-4. Copy `.env.example` to `.env` and fill in your values
-5. Customize `docs/examples/SOUL.md` with your agent's personality
-6. Set Telegram webhook:
-   ```bash
-   # Generate self-signed cert
-   openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-     -keyout ssl.key -out ssl.crt -subj '/CN=YOUR_IP'
-   
-   # Set webhook
-   curl -F "url=https://YOUR_IP:8443/webhooks/telegram" \
-        -F "certificate=@ssl.crt" \
-        https://api.telegram.org/botYOUR_TOKEN/setWebhook
-   ```
-7. Run: `npx tsx simple-bot.ts`
+```bash
+# 1. Create Telegram bot via @BotFather, get token
+# 2. Install Claude Code CLI
+npm install -g @anthropic-ai/claude-code
+claude  # login with OAuth
+
+# 3. Clone and configure
+git clone https://github.com/waimaozi/agent-platform-public
+cd agent-platform-public
+cp .env.example .env
+# Edit .env with your keys
+
+# 4. Install dependencies
+pnpm install
+
+# 5. Start Postgres (for knowledge graph)
+docker-compose up -d
+
+# 6. Create a Pinecone index
+# Go to pinecone.io, create "agent-memory" index, 1024 dimensions, cosine
+
+# 7. Customize personality
+cp docs/examples/SOUL.md my-soul.md
+# Edit with your agent's personality
+
+# 8. Set Telegram webhook
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout ssl.key -out ssl.crt -subj '/CN=YOUR_IP'
+curl -F "url=https://YOUR_IP:8443/webhooks/telegram" \
+     -F "certificate=@ssl.crt" \
+     https://api.telegram.org/botYOUR_TOKEN/setWebhook
+
+# 9. Run
+npx tsx simple-bot.ts
+```
 
 ## Commands
 
-- `/start` — welcome message
-- `/help` — command list
-- `/pin <fact>` — remember a fact
-- `/cost` — pricing info
+| Command | Description |
+|---|---|
+| /start | Welcome message |
+| /help | Command list |
+| /pin \<fact\> | Remember a fact |
+| /email to Subject \| Body | Send email via SMTP |
+| /cost | Pricing info |
 
 ## Customization
 
-- **SOUL.md** — agent personality, loaded via `--system-prompt-file`
-- **TOOLS.md** — service credentials, loaded into agent context
-- **Regex patterns** — edit GREETING_RE, BANTER_RE, JUNK_RE in simple-bot.ts
-- **Timeout** — CLAUDE_TIMEOUT in simple-bot.ts (default 10 min)
+| What | How |
+|---|---|
+| Personality | Edit SOUL.md |
+| Service access | Edit TOOLS.md |
+| Banter patterns | Edit GREETING_RE, BANTER_RE, JUNK_RE |
+| Timeout | CLAUDE_TIMEOUT constant |
+| Vector search results | topK parameter in searchMemory() |
+| Graph traversal depth | hops parameter in queryGraph() |
+| LLM provider | Replace callClaude() function |
+| Triple extraction model | Change model in extractAndStoreTriples() |
 
 ## Can I use a different LLM?
 
-The architecture is LLM-agnostic. Replace the `callClaude()` function with any CLI/API:
-- OpenAI: `openai api chat.completions.create ...`
-- Codex: `codex exec ...`  
-- Local: `ollama run ...`
-- LangChain/LangGraph: wrap in a Python script called via spawn
-
-## V1 (full pipeline)
-
-The `v1-full-pipeline` git tag contains the full version with:
-- Scoped memory (6 layers), frontdesk classifier, context bundle builder
-- Supervisor → Researcher → Coder → Verifier pipeline
-- Approval flow, cost tracking, secrets service
-- 55+ tests, 14k lines
-
-We simplified to v2 (this version) because 20% of the code delivered 80% of the value.
+Yes. Replace `callClaude()` with any CLI or API call. The memory layers (vector + graph) are LLM-agnostic.
 
 ## License
 
