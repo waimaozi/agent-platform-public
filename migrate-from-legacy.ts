@@ -1,9 +1,9 @@
 #!/usr/bin/env npx tsx
 /**
- * Migrate from OpenClaw → Agent Platform
+ * Migrate from legacy agent → Agent Platform
  *
  * Extracts: personality, memories, secrets, config, workspace
- * Run: npx tsx migrate-openclaw.ts [openclaw-home-dir]
+ * Run: npx tsx migrate-legacy agent.ts [legacy agent-home-dir]
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, copyFileSync, statSync } from "node:fs";
@@ -14,7 +14,7 @@ import { Database } from "better-sqlite3"; // Will need: pnpm add better-sqlite3
 // ============================================================
 // Config
 // ============================================================
-const OPENCLAW_HOME = process.argv[2] ?? findOpenClawHome();
+const legacy agent_HOME = process.argv[2] ?? findlegacy agentHome();
 const PLATFORM_DIR = process.env.INSTALL_DIR ?? "/opt/agent-platform";
 const SOUL_DIR = join(PLATFORM_DIR, "agent-soul");
 const ENV_PATH = join(PLATFORM_DIR, ".env");
@@ -31,19 +31,19 @@ function err(msg: string) { console.log(`${RED}[✗]${NC} ${msg}`); }
 const stats = { found: 0, migrated: 0, skipped: 0, errors: 0 };
 
 // ============================================================
-// Find OpenClaw installation
+// Find legacy agent installation
 // ============================================================
-function findOpenClawHome(): string {
+function findlegacy agentHome(): string {
   const candidates = [
-    join(process.env.HOME ?? "", ".openclaw"),
-    "/home/user/.openclaw",
-    join(process.cwd(), ".openclaw"),
+    join(process.env.HOME ?? "", ".legacy agent"),
+    "/home/user/.legacy agent",
+    join(process.cwd(), ".legacy agent"),
   ];
   for (const c of candidates) {
-    if (existsSync(join(c, "openclaw.json"))) return c;
+    if (existsSync(join(c, "legacy agent.json"))) return c;
   }
-  console.error("Could not find OpenClaw installation. Pass the path as argument:");
-  console.error("  npx tsx migrate-openclaw.ts /path/to/.openclaw");
+  console.error("Could not find legacy agent installation. Pass the path as argument:");
+  console.error("  npx tsx migrate-legacy agent.ts /path/to/.legacy agent");
   process.exit(1);
 }
 
@@ -52,10 +52,10 @@ function findOpenClawHome(): string {
 // ============================================================
 console.log(`
 ╔══════════════════════════════════════════╗
-║  OpenClaw → Agent Platform Migration     ║
+║  legacy agent → Agent Platform Migration     ║
 ╚══════════════════════════════════════════╝
 `);
-console.log(`OpenClaw home: ${OPENCLAW_HOME}`);
+console.log(`legacy agent home: ${legacy agent_HOME}`);
 console.log(`Agent Platform: ${PLATFORM_DIR}`);
 console.log("");
 
@@ -68,8 +68,8 @@ mkdirSync(join(SOUL_DIR, "memory"), { recursive: true });
 console.log("━━━ 1. Personality ━━━");
 
 const soulPaths = [
-  join(OPENCLAW_HOME, "workspace", "SOUL.md"),
-  join(OPENCLAW_HOME, "workspace-codex", "SOUL.md"),
+  join(legacy agent_HOME, "workspace", "SOUL.md"),
+  join(legacy agent_HOME, "workspace-codex", "SOUL.md"),
 ];
 
 for (const sp of soulPaths) {
@@ -83,7 +83,7 @@ for (const sp of soulPaths) {
 }
 
 const userPaths = [
-  join(OPENCLAW_HOME, "workspace", "USER.md"),
+  join(legacy agent_HOME, "workspace", "USER.md"),
 ];
 for (const up of userPaths) {
   if (existsSync(up)) {
@@ -99,7 +99,7 @@ for (const up of userPaths) {
 // ============================================================
 console.log("\n━━━ 2. Memories ━━━");
 
-const memoryDb = join(OPENCLAW_HOME, "memory", "main.sqlite");
+const memoryDb = join(legacy agent_HOME, "memory", "main.sqlite");
 if (existsSync(memoryDb)) {
   stats.found++;
   try {
@@ -138,14 +138,14 @@ if (existsSync(memoryDb)) {
     stats.migrated++;
 
     // Copy raw SQLite too for vector re-embedding later
-    copyFileSync(memoryDb, join(SOUL_DIR, "memory", "openclaw-memory.sqlite"));
+    copyFileSync(memoryDb, join(SOUL_DIR, "memory", "legacy agent-memory.sqlite"));
     log("Raw SQLite database copied for re-embedding");
 
   } catch (e) {
     warn(`Memory extraction partial: ${e instanceof Error ? e.message : e}`);
     // Still copy the raw file
     try {
-      copyFileSync(memoryDb, join(SOUL_DIR, "memory", "openclaw-memory.sqlite"));
+      copyFileSync(memoryDb, join(SOUL_DIR, "memory", "legacy agent-memory.sqlite"));
       log("Raw SQLite copied (extraction failed, but file preserved)");
       stats.migrated++;
     } catch { stats.errors++; }
@@ -155,11 +155,11 @@ if (existsSync(memoryDb)) {
 }
 
 // ============================================================
-// 3. Configuration (openclaw.json → .env)
+// 3. Configuration (legacy agent.json → .env)
 // ============================================================
 console.log("\n━━━ 3. Configuration ━━━");
 
-const configPath = join(OPENCLAW_HOME, "openclaw.json");
+const configPath = join(legacy agent_HOME, "legacy agent.json");
 if (existsSync(configPath)) {
   stats.found++;
   try {
@@ -200,21 +200,21 @@ if (existsSync(configPath)) {
 
     // Write to .env (append, don't overwrite)
     const envLines: string[] = [];
-    if (tgToken) envLines.push(`# Migrated from OpenClaw`, `TELEGRAM_BOT_TOKEN=${tgToken}`);
+    if (tgToken) envLines.push(`# Migrated from legacy agent`, `TELEGRAM_BOT_TOKEN=${tgToken}`);
     for (const [k, v] of Object.entries(keys)) {
       envLines.push(`${k}=${v}`);
     }
 
     if (envLines.length > 0) {
       const envContent = existsSync(ENV_PATH) ? readFileSync(ENV_PATH, "utf-8") : "";
-      writeFileSync(ENV_PATH, envContent + "\n\n# --- Migrated from OpenClaw ---\n" + envLines.join("\n") + "\n");
+      writeFileSync(ENV_PATH, envContent + "\n\n# --- Migrated from legacy agent ---\n" + envLines.join("\n") + "\n");
       log(`${envLines.length} config values written to .env`);
     }
 
     // Save model config
     const models = config.models ?? {};
     if (Object.keys(models).length > 0) {
-      writeFileSync(join(SOUL_DIR, "openclaw-models.json"), JSON.stringify(models, null, 2));
+      writeFileSync(join(SOUL_DIR, "legacy agent-models.json"), JSON.stringify(models, null, 2));
       log("Model configuration saved");
     }
 
@@ -237,7 +237,7 @@ if (existsSync(configPath)) {
     stats.errors++;
   }
 } else {
-  warn("No openclaw.json found");
+  warn("No legacy agent.json found");
 }
 
 // ============================================================
@@ -246,8 +246,8 @@ if (existsSync(configPath)) {
 console.log("\n━━━ 4. Secrets ━━━");
 
 const secretsDirs = [
-  join(OPENCLAW_HOME, "workspace", ".secrets"),
-  join(OPENCLAW_HOME, ".secrets"),
+  join(legacy agent_HOME, "workspace", ".secrets"),
+  join(legacy agent_HOME, ".secrets"),
 ];
 
 let secretCount = 0;
@@ -281,7 +281,7 @@ if (secretCount > 0) {
 // ============================================================
 console.log("\n━━━ 5. Workspace ━━━");
 
-const workspacePath = join(OPENCLAW_HOME, "workspace");
+const workspacePath = join(legacy agent_HOME, "workspace");
 if (existsSync(workspacePath)) {
   stats.found++;
   // Don't copy everything — just list what's there
@@ -300,7 +300,7 @@ if (existsSync(workspacePath)) {
 
     // Save workspace index
     writeFileSync(join(SOUL_DIR, "workspace-index.txt"),
-      `OpenClaw workspace: ${workspacePath}\n\nDirectories:\n${dirs.map(d => `  ${d}/`).join("\n")}\n\nFiles:\n${files.map(f => `  ${f}`).join("\n")}\n`);
+      `legacy agent workspace: ${workspacePath}\n\nDirectories:\n${dirs.map(d => `  ${d}/`).join("\n")}\n\nFiles:\n${files.map(f => `  ${f}`).join("\n")}\n`);
     log("Workspace index saved (files not copied — reference original path)");
 
     stats.migrated++;
@@ -316,7 +316,7 @@ if (existsSync(workspacePath)) {
 // ============================================================
 console.log("\n━━━ 6. Sessions ━━━");
 
-const sessionsPath = join(OPENCLAW_HOME, "agents", "main", "sessions");
+const sessionsPath = join(legacy agent_HOME, "agents", "main", "sessions");
 if (existsSync(sessionsPath)) {
   stats.found++;
   try {
@@ -387,11 +387,11 @@ console.log(`
   ├── secrets/         — credentials (review!)
   ├── group-prompts.json    — per-group system prompts
   ├── workspace-index.txt   — workspace contents
-  └── openclaw-models.json  — model config
+  └── legacy agent-models.json  — model config
 
   Next steps:
   1. Review secrets/ — remove what you don't need
   2. Edit TOOLS.md — add service URLs and credentials
   3. Run the setup wizard or start the bot
-  4. Your agent will have all OpenClaw memories and personality
+  4. Your agent will have all legacy agent memories and personality
 `);
