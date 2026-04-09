@@ -1,56 +1,12 @@
 {
-  "extends": "./tsconfig.base.json",
   "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "esModuleInterop": true,
+    "strict": true,
     "noEmit": true,
-    "paths": {
-      "@agent-platform/contracts": [
-        "packages/contracts/src/index.ts"
-      ],
-      "@agent-platform/core": [
-        "packages/core/src/index.ts"
-      ],
-      "@agent-platform/policy-engine": [
-        "packages/policy-engine/src/index.ts"
-      ],
-      "@agent-platform/supervisor": [
-        "packages/supervisor/src/index.ts"
-      ],
-      "@agent-platform/observability": [
-        "packages/observability/src/index.ts"
-      ],
-      "@agent-platform/memory-service": [
-        "packages/memory-service/src/index.ts"
-      ],
-      "@agent-platform/memory-fabric": [
-        "packages/memory-fabric/src/index.ts"
-      ],
-      "@agent-platform/frontdesk": [
-        "packages/frontdesk/src/index.ts"
-      ],
-      "@agent-platform/bundle-builder": [
-        "packages/bundle-builder/src/index.ts"
-      ],
-      "@agent-platform/model-gateway": [
-        "packages/model-gateway/src/index.ts"
-      ],
-      "@agent-platform/codex-runtime": [
-        "packages/codex-runtime/src/index.ts"
-      ],
-      "@agent-platform/secrets-service": [
-        "packages/secrets-service/src/index.ts"
-      ],
-      "@agent-platform/supervisor-runtime": [
-        "packages/supervisor-runtime/src/index.ts"
-      ],
-      "@agent-platform/integrations": [
-        "packages/integrations/src/index.ts"
-      ]
-    }
+    "skipLibCheck": true
   },
-  "include": [
-    "apps/**/*.ts",
-    "packages/**/*.ts",
-    "scripts/**/*.ts",
-    "tests/**/*.ts"
-  ]
+  "include": ["*.ts"]
 }

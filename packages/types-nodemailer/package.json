@@ -1,8 +1,0 @@
-{
-  "name": "@types/nodemailer",
-  "version": "0.0.0-workspace",
-  "private": true,
-  "type": "module",
-  "main": "./index.d.ts",
-  "types": "./index.d.ts"
-}
