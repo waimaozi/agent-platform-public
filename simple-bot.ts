@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { spawn, execSync } from "node:child_process";
+import { spawn, execSync, ChildProcess } from "node:child_process";
 import { readFileSync, writeFileSync as fsWriteFile, appendFileSync, existsSync } from "node:fs";
 import Fastify from "fastify";
 import { z } from "zod";
@@ -13,7 +13,11 @@ const CLAUDE_PATH = process.env.CLAUDE_CODE_PATH ?? "claude";
 const SOUL_PATH = process.env.MIRA_SOUL_PATH ?? "/opt/agent-platform/agent-soul/FULL-CONTEXT.md";
 const PORT = Number(process.env.API_PORT ?? 3000);
 const HOST = process.env.API_HOST ?? "0.0.0.0";
-const CLAUDE_TIMEOUT = 600_000;
+const CLAUDE_TIMEOUT = 900_000; // 15 min for complex tasks
+const MAX_PROMPT_LENGTH = 30_000; // truncate huge messages to avoid timeouts
+const MAX_CONCURRENT_CLAUDE = 2; // max parallel Claude processes
+const HEARTBEAT_INTERVAL = 120_000; // 2 min progress updates to user
+const SIGKILL_GRACE = 10_000; // 10s after SIGTERM before SIGKILL
 
 // Optional: Vector memory
 const PINECONE_API_KEY = process.env.PINECONE_API_KEY ?? "";
@@ -192,17 +196,32 @@ async function queryGraph(query: string): Promise<string[]> {
   try {
     const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 3).slice(0, 5);
     if (words.length === 0) return [];
-    const conds = words.map((_, i) => `(subject LIKE $${i+1} OR object LIKE $${i+1})`).join(" OR ");
+    const conds = words.map((_, i) => `(t.subject LIKE $${i+1} OR t.object LIKE $${i+1})`).join(" OR ");
     const params = words.map(w => `%${w}%`);
-    const res = await getPool().query(`SELECT subject, predicate, object FROM knowledge_triples WHERE ${conds} LIMIT 10`, params);
-    return res.rows.map((r: { subject: string; predicate: string; object: string }) => `${r.subject} → ${r.predicate} → ${r.object}`);
+    // 2-hop recursive CTE: find direct matches, then follow connections one more hop
+    const res = await getPool().query(`
+      WITH RECURSIVE graph AS (
+        SELECT subject, predicate, object, 1 AS depth
+        FROM knowledge_triples t WHERE ${conds}
+        UNION
+        SELECT t2.subject, t2.predicate, t2.object, g.depth + 1
+        FROM knowledge_triples t2
+        JOIN graph g ON (t2.subject = g.object OR t2.subject = g.subject
+                        OR t2.object = g.subject OR t2.object = g.object)
+        WHERE g.depth < 2
+      )
+      SELECT DISTINCT subject, predicate, object, depth
+      FROM graph ORDER BY depth, subject LIMIT 15
+    `, params);
+    return res.rows.map((r: { subject: string; predicate: string; object: string; depth: number }) =>
+      `${r.subject} → ${r.predicate} → ${r.object}${r.depth > 1 ? " (связь)" : ""}`);
   } catch { return []; }
 }
 
 // ============================================================
 // Session log — simple file-based recent memory (always works)
 // ============================================================
-const SESSION_LOG = process.env.SESSION_LOG_PATH ?? "/home/user/agent-soul/memory/session-log.md";
+const SESSION_LOG = process.env.SESSION_LOG_PATH ?? "/home/openclaw/mira-soul/memory/session-log.md";
 
 function appendSessionLog(entry: string): void {
   try {
@@ -300,28 +319,139 @@ function classify(text: string): "banter" | "junk" | "command" | "real" {
 }
 
 // ============================================================
+// Task queue — concurrency limiter + per-chat dedup
+// ============================================================
+interface ActiveTask {
+  chatId: string;
+  threadId?: number;
+  prompt: string;
+  startedAt: number;
+  child: ChildProcess | null;
+  heartbeat: ReturnType<typeof setInterval> | null;
+  followUps: string[]; // messages that arrived while this task was running
+}
+
+const activeTasks = new Map<string, ActiveTask>(); // key = chatId:threadId
+let runningCount = 0;
+
+interface QueueItem {
+  chatId: string;
+  threadId?: number;
+  prompt: string;
+  userId?: string;
+  resolve: () => void;
+}
+const taskQueue: QueueItem[] = [];
+
+function taskKey(chatId: string, threadId?: number): string {
+  return threadId ? `${chatId}:${threadId}` : chatId;
+}
+
+function drainQueue(): void {
+  while (runningCount < MAX_CONCURRENT_CLAUDE && taskQueue.length > 0) {
+    const item = taskQueue.shift()!;
+    runningCount++;
+    processQuestion(item.prompt, item.chatId, item.threadId).catch(err => {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("FAILED:", errMsg);
+      const isTimeout = errMsg.includes("timeout");
+      const userMsg = isTimeout
+        ? `⏱ Таймаут — Claude не уложился в ${Math.round(CLAUDE_TIMEOUT / 60000)} мин. Попробуй короче или разбей на части.`
+        : `❌ Ошибка: ${errMsg.slice(0, 200)}. Попробуй ещё раз.`;
+      tgSend(item.chatId, userMsg, item.threadId);
+    }).finally(() => {
+      runningCount--;
+      item.resolve();
+      drainQueue();
+    });
+  }
+}
+
+function enqueueTask(chatId: string, prompt: string, threadId?: number, userId?: string): void {
+  const key = taskKey(chatId, threadId);
+  const existing = activeTasks.get(key);
+
+  // Per-chat dedup: if Claude is already working for this chat/thread, queue as follow-up
+  if (existing) {
+    existing.followUps.push(prompt);
+    const elapsed = Math.round((Date.now() - existing.startedAt) / 60000);
+    tgSend(chatId, `📎 Добавила к текущей задаче (работаю уже ${elapsed} мин). Отвечу на всё вместе.`, threadId);
+    return;
+  }
+
+  if (runningCount >= MAX_CONCURRENT_CLAUDE) {
+    const pos = taskQueue.length + 1;
+    tgSend(chatId, `⏳ Принято. Ты #${pos} в очереди, сейчас обрабатываю ${runningCount} задач.`, threadId);
+  } else {
+    tgSend(chatId, "⏳ Принято, работаю...", threadId);
+  }
+
+  rememberMessage(prompt, chatId, userId).catch(() => {});
+  new Promise<void>(resolve => {
+    taskQueue.push({ chatId, threadId, prompt, userId, resolve });
+    drainQueue();
+  });
+}
+
+// ============================================================
 // Claude CLI
 // ============================================================
-function callClaude(prompt: string): Promise<{ text: string; cost: number; tokens: number }> {
+function callClaude(prompt: string, task?: ActiveTask): Promise<{ text: string; cost: number; tokens: number }> {
+  // Truncate excessively long prompts to avoid timeouts
+  const truncated = prompt.length > MAX_PROMPT_LENGTH
+    ? prompt.slice(0, MAX_PROMPT_LENGTH) + "\n\n[...сообщение обрезано, было " + prompt.length + " символов]"
+    : prompt;
+
   return new Promise((resolve, reject) => {
-    const args = ["-p", prompt, "--output-format", "json", "--no-session-persistence",
+    let settled = false;
+    const settle = (fn: () => void) => { if (!settled) { settled = true; fn(); } };
+
+    const args = ["-p", truncated, "--output-format", "json", "--no-session-persistence",
       "--dangerously-skip-permissions", "--max-turns", "50"];
     try { readFileSync(SOUL_PATH); args.push("--system-prompt-file", SOUL_PATH); } catch {}
 
+    const startTime = Date.now();
     const child = spawn(CLAUDE_PATH, args, { stdio: ["ignore", "pipe", "pipe"] });
+    if (task) task.child = child;
     let stdout = "", stderr = "";
     child.stdout.on("data", (d: Buffer) => { stdout += d.toString(); });
     child.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
-    const timer = setTimeout(() => { child.kill("SIGKILL"); reject(new Error("Claude timeout")); }, CLAUDE_TIMEOUT);
-    child.on("close", () => {
-      clearTimeout(timer);
+
+    const forceKill = () => {
+      child.kill("SIGTERM");
+      setTimeout(() => {
+        try {
+          child.kill("SIGKILL");
+          // Belt-and-suspenders: also kill by PID in case node handle is stale
+          if (child.pid) try { process.kill(child.pid, "SIGKILL"); } catch {}
+        } catch {}
+      }, SIGKILL_GRACE);
+    };
+
+    const timer = setTimeout(() => {
+      forceKill();
+      const elapsed = Math.round((Date.now() - startTime) / 1000);
+      // Try to salvage partial output
+      let partial = "";
       try {
         const env = JSON.parse(stdout.trim());
-        resolve({ text: env.result ?? "", cost: env.total_cost_usd ?? 0,
-          tokens: (env.usage?.input_tokens ?? 0) + (env.usage?.output_tokens ?? 0) });
-      } catch { reject(new Error(stderr.trim() || "No output")); }
+        partial = env.result ?? "";
+      } catch {}
+      settle(() => reject(new Error(`Claude timeout (${elapsed}s)${partial ? `\n\nЧастичный ответ:\n${partial.slice(0, 500)}` : ""}`)));
+    }, CLAUDE_TIMEOUT);
+
+    child.on("close", () => {
+      clearTimeout(timer);
+      if (task) task.child = null;
+      settle(() => {
+        try {
+          const env = JSON.parse(stdout.trim());
+          resolve({ text: env.result ?? "", cost: env.total_cost_usd ?? 0,
+            tokens: (env.usage?.input_tokens ?? 0) + (env.usage?.output_tokens ?? 0) });
+        } catch { reject(new Error(stderr.trim() || "No output from Claude")); }
+      });
     });
-    child.on("error", (err) => { clearTimeout(timer); reject(err); });
+    child.on("error", (err) => { clearTimeout(timer); settle(() => reject(err)); });
   });
 }
 
@@ -331,6 +461,7 @@ function callClaude(prompt: string): Promise<{ text: string; cost: number; token
 const HELP = `Команды:
 /start — приветствие
 /help — список команд
+/status — что сейчас делаю
 /pin <факт> — запомнить факт
 ${HAS_EMAIL ? "/email to Subject | Body — отправить письмо\n" : ""}/cost — стоимость`;
 
@@ -362,6 +493,18 @@ function handleCommand(text: string, chatId: string): string | null {
           .catch(() => tgSend(chatId, "❌ Ошибка отправки"));
       });
       return "📤 Отправляю...";
+    }
+    case "/status": {
+      if (activeTasks.size === 0 && taskQueue.length === 0) return "💤 Свободна, жду задач.";
+      const lines: string[] = [];
+      for (const [k, t] of activeTasks) {
+        const elapsed = Math.round((Date.now() - t.startedAt) / 60000);
+        lines.push(`🔄 ${t.prompt.slice(0, 60)}... (${elapsed} мин)`);
+        if (t.followUps.length > 0) lines.push(`  📎 +${t.followUps.length} доп. сообщений в очереди`);
+      }
+      if (taskQueue.length > 0) lines.push(`⏳ В очереди: ${taskQueue.length}`);
+      lines.push(`\nClaude процессов: ${runningCount}/${MAX_CONCURRENT_CLAUDE}`);
+      return lines.join("\n");
     }
     case "/cost": return "📊 Простой вопрос ~$0.04, сложный ~$0.15-0.50";
     default: return null;
@@ -406,7 +549,13 @@ const schema = z.object({
 }).passthrough();
 
 const app = Fastify({ logger: false });
-app.get("/health", async () => ({ ok: true, features: { vector: HAS_VECTOR, graph: HAS_GRAPH, email: HAS_EMAIL }, now: new Date().toISOString() }));
+app.get("/health", async () => ({
+  ok: true,
+  features: { vector: HAS_VECTOR, graph: HAS_GRAPH, email: HAS_EMAIL },
+  tasks: { active: activeTasks.size, queued: taskQueue.length, running: runningCount, max: MAX_CONCURRENT_CLAUDE },
+  uptime: Math.round(process.uptime()),
+  now: new Date().toISOString(),
+}));
 
 app.post("/webhooks/telegram", async (request, reply) => {
   try {
@@ -432,20 +581,28 @@ app.post("/webhooks/telegram", async (request, reply) => {
     if (cls === "banter") { await tgSend(chatId, BANTER_REPLIES[Math.floor(Math.random() * BANTER_REPLIES.length)], threadId); rememberMessage(text, chatId); return reply.send({ ok: true }); }
     if (cls === "command") { const r = handleCommand(text, chatId); if (r) await tgSend(chatId, r, threadId); return reply.send({ ok: true }); }
 
-    // Real question
-    await tgSend(chatId, "⏳ Принято, работаю...", threadId);
+    // Real question — enqueue with concurrency control
     reply.send({ ok: true });
-
-    rememberMessage(text, chatId, String(msg.from.id)).catch(() => {});
-    processQuestion(text, chatId, threadId).catch(err => {
-      console.error("FAILED:", err instanceof Error ? err.message : err);
-      tgSend(chatId, "Ошибка. Попробуй ещё раз.", threadId);
-    });
+    enqueueTask(chatId, text, threadId, String(msg.from.id));
   } catch (err) { return reply.send({ ok: false, error: err instanceof Error ? err.message : "error" }); }
 });
 
 async function processQuestion(q: string, chatId: string, threadId?: number): Promise<void> {
+  const key = taskKey(chatId, threadId);
+  const task: ActiveTask = {
+    chatId, threadId, prompt: q, startedAt: Date.now(),
+    child: null, heartbeat: null, followUps: [],
+  };
+  activeTasks.set(key, task);
+
   const typing = setInterval(() => tgTyping(chatId), 4000);
+
+  // Heartbeat: tell user we're still alive every 2 min
+  task.heartbeat = setInterval(() => {
+    const elapsed = Math.round((Date.now() - task.startedAt) / 60000);
+    tgSend(chatId, `⚙️ Всё ещё работаю... (${elapsed} мин)`, threadId);
+  }, HEARTBEAT_INTERVAL);
+
   try {
     const context = await recallContext(q);
     const session = getRecentSession();
@@ -453,9 +610,11 @@ async function processQuestion(q: string, chatId: string, threadId?: number): Pr
     const prefix = [context, session, facts?.length ? `Факты:\n${facts.map(f => `- ${f}`).join("\n")}` : ""].filter(Boolean).join("\n\n");
 
     console.log("CLAUDE:", q.slice(0, 60));
-    const { text, cost } = await callClaude(prefix ? `${prefix}\n\n${q}` : q);
-    console.log("DONE:", text.length, "chars $" + cost.toFixed(2));
+    const { text, cost } = await callClaude(prefix ? `${prefix}\n\n${q}` : q, task);
+    const elapsed = Math.round((Date.now() - task.startedAt) / 1000);
+    console.log(`DONE: ${text.length} chars $${cost.toFixed(2)} ${elapsed}s`);
     clearInterval(typing);
+    clearInterval(task.heartbeat);
 
     if (!text) { await tgSend(chatId, "Нет ответа. Переформулируй.", threadId); return; }
 
@@ -466,17 +625,58 @@ async function processQuestion(q: string, chatId: string, threadId?: number): Pr
     appendSessionLog(`Q: ${q.slice(0, 80)} → A: ${text.slice(0, 80)}`);
 
     const full = text + (cost > 0 ? `\n\n_Стоимость: $${cost.toFixed(2)}_` : "");
-    if (full.length <= 4000) { await tgSend(chatId, full, threadId); }
-    else {
-      let rem = full;
-      while (rem.length > 0) {
-        const cut = rem.length <= 4000 ? rem.length : (rem.lastIndexOf("\n", 4000) > 2000 ? rem.lastIndexOf("\n", 4000) : 4000);
-        await tgSend(chatId, rem.slice(0, cut), threadId);
-        rem = rem.slice(cut);
-      }
+    await sendLong(chatId, full, threadId);
+
+    // Process follow-up messages that arrived while we were working
+    if (task.followUps.length > 0) {
+      const followUp = task.followUps.map((f, i) => `[Доп. сообщение ${i + 1}]: ${f}`).join("\n");
+      console.log(`FOLLOW-UP: ${task.followUps.length} messages for ${key}`);
+      activeTasks.delete(key);
+      // Re-enqueue combined follow-ups as a new task
+      enqueueTask(chatId, `Контекст предыдущего ответа: ${text.slice(0, 500)}\n\n${followUp}`, threadId);
+    } else {
+      activeTasks.delete(key);
     }
-  } catch (err) { clearInterval(typing); throw err; }
+  } catch (err) {
+    clearInterval(typing);
+    if (task.heartbeat) clearInterval(task.heartbeat);
+    activeTasks.delete(key);
+    throw err;
+  }
 }
+
+async function sendLong(chatId: string, text: string, threadId?: number): Promise<void> {
+  if (text.length <= 4000) { await tgSend(chatId, text, threadId); return; }
+  let rem = text;
+  while (rem.length > 0) {
+    const cut = rem.length <= 4000 ? rem.length : (rem.lastIndexOf("\n", 4000) > 2000 ? rem.lastIndexOf("\n", 4000) : 4000);
+    await tgSend(chatId, rem.slice(0, cut), threadId);
+    rem = rem.slice(cut);
+  }
+}
+
+// ============================================================
+// Stale task reaper — runs every 60s, kills tasks stuck past timeout
+// ============================================================
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, task] of activeTasks) {
+    const elapsed = now - task.startedAt;
+    if (elapsed > CLAUDE_TIMEOUT + 30_000) {
+      // Task is stuck past timeout + grace period — force cleanup
+      console.error(`REAPER: killing stale task ${key} (${Math.round(elapsed / 60000)} min)`);
+      if (task.child) {
+        try { task.child.kill("SIGKILL"); } catch {}
+        if (task.child.pid) try { process.kill(task.child.pid, "SIGKILL"); } catch {}
+      }
+      if (task.heartbeat) clearInterval(task.heartbeat);
+      tgSend(task.chatId, `⏱ Задача отменена (превышен лимит ${Math.round(CLAUDE_TIMEOUT / 60000)} мин). Попробуй разбить на части.`, task.threadId);
+      activeTasks.delete(key);
+      runningCount = Math.max(0, runningCount - 1);
+      drainQueue();
+    }
+  }
+}, 60_000);
 
 // ============================================================
 // Start
