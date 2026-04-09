@@ -252,7 +252,7 @@ Keep project names consistent (e.g. always "chemitech-sgr", "byplan", "agent-pla
     }
 
     console.log(`ENRICHED: project=${tags.project} type=${tags.type} entities=${(tags.entities ?? []).length} triples=${(tags.triples ?? []).length}`);
-  } catch {}
+  } catch (e) { console.error("ENRICH_ERR:", e instanceof Error ? e.message : e); }
 }
 
 async function queryGraph(query: string): Promise<string[]> {
@@ -309,8 +309,8 @@ async function rememberMessage(text: string, chatId: string, userId?: string, to
   storeMemoryDB(text, "message", chatId, userId).catch(() => {});
   // Store vector with topicId, then async enrich with tags
   storeVector(text, { type: "message", chatId, ...(topicId ? { topicId } : {}) })
-    .then(vecId => { enrichMemory(text, `user:${userId ?? "unknown"}`, vecId ?? undefined).catch(() => {}); })
-    .catch(() => {});
+    .then(vecId => { enrichMemory(text, `user:${userId ?? "unknown"}`, vecId ?? undefined); })
+    .catch(e => console.error("STORE_VEC_ERR:", e instanceof Error ? e.message : e));
   appendSessionLog(text.slice(0, 200));
 }
 
@@ -697,8 +697,8 @@ async function processQuestion(q: string, chatId: string, threadId?: number): Pr
     const topicStr = threadId ? String(threadId) : undefined;
     storeMemoryDB(`Q: ${q.slice(0, 500)}\nA: ${text.slice(0, 4000)}`, "qa", chatId).catch(() => {});
     storeVector(`Q: ${q.slice(0, 500)}\nA: ${text.slice(0, 2000)}`, { type: "qa", chatId, ...(topicStr ? { topicId: topicStr } : {}) })
-      .then(vecId => { enrichMemory(`Q: ${q.slice(0, 500)}\nA: ${text.slice(0, 1000)}`, "assistant", vecId ?? undefined).catch(() => {}); })
-      .catch(() => {});
+      .then(vecId => { enrichMemory(`Q: ${q.slice(0, 500)}\nA: ${text.slice(0, 1000)}`, "assistant", vecId ?? undefined); })
+      .catch(e => console.error("STORE_VEC_ERR:", e instanceof Error ? e.message : e));
     appendSessionLog(`Q: ${q.slice(0, 150)} → A: ${text.slice(0, 150)}`);
 
     const full = text + (cost > 0 ? `\n\n_Стоимость: $${cost.toFixed(2)}_` : "");
