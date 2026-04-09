@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { execSync } from "node:child_process";
 import Fastify from "fastify";
 
-const PORT = 8080;
+const PORT = Number(process.env.SETUP_PORT ?? 8888);
 const INSTALL_DIR = process.env.INSTALL_DIR ?? "/opt/agent-platform";
 const ENV_PATH = `${INSTALL_DIR}/.env`;
 
