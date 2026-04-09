@@ -95,7 +95,7 @@ async function storeMemoryDB(text: string, type: string, chatId: string, userId?
   try {
     await getPool().query(
       "INSERT INTO memories (text, type, chat_id, user_id) VALUES ($1, $2, $3, $4)",
-      [text.slice(0, 2000), type, chatId, userId ?? null]
+      [text.slice(0, 8000), type, chatId, userId ?? null]
     );
   } catch {}
 }
@@ -139,7 +139,7 @@ async function storeVector(text: string, metadata: Record<string, string>): Prom
     await fetch(`https://${PINECONE_HOST}/vectors/upsert`, {
       method: "POST",
       headers: { "Api-Key": PINECONE_API_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({ vectors: [{ id: `mem-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, values: embedding, metadata: { ...metadata, text: text.slice(0, 1000), timestamp: new Date().toISOString() } }] })
+      body: JSON.stringify({ vectors: [{ id: `mem-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, values: embedding, metadata: { ...metadata, text: text.slice(0, 4000), timestamp: new Date().toISOString() } }] })
     });
   } catch {}
 }
@@ -252,17 +252,23 @@ async function rememberMessage(text: string, chatId: string, userId?: string): P
 async function recallContext(query: string): Promise<string> {
   const parts: string[] = [];
 
-  // Postgres full-text (always available)
+  // Postgres full-text (always available) — full text, no truncation
   const dbResults = await searchMemoryDB(query);
-  if (dbResults.length > 0) parts.push(`Похожие сообщения:\n${dbResults.map(r => `- ${r.slice(0, 150)}`).join("\n")}`);
+  if (dbResults.length > 0) parts.push(`Релевантные записи из памяти:\n${dbResults.join("\n---\n")}`);
 
-  // Vector search (if configured)
+  // Vector search (if configured) — full text
   const vecResults = await searchVector(query);
-  if (vecResults.length > 0) parts.push(`Семантический контекст:\n${vecResults.map(r => `- ${r.slice(0, 150)}`).join("\n")}`);
+  if (vecResults.length > 0) parts.push(`Семантически похожее:\n${vecResults.join("\n---\n")}`);
 
   // Graph (if configured)
   const graphResults = await queryGraph(query);
   if (graphResults.length > 0) parts.push(`Связи:\n${graphResults.map(r => `- ${r}`).join("\n")}`);
+
+  // Tell Claude how to dig deeper if the auto-recall isn't enough
+  parts.push(`Если нужно больше контекста — ты можешь сама:
+- psql: docker exec $(docker ps -q -f name=postgres) psql -U postgres -d agent_platform -c "SELECT text FROM memories WHERE text LIKE '%keyword%' ORDER BY ts DESC LIMIT 5;"
+- Файлы: grep -r 'keyword' /home/openclaw/mira-soul/memory/
+- Сессии: cat /home/openclaw/mira-soul/memory/session-log.md | tail -50`);
 
   return parts.join("\n\n");
 }
@@ -623,10 +629,10 @@ async function processQuestion(q: string, chatId: string, threadId?: number): Pr
     if (!text) { await tgSend(chatId, "Нет ответа. Переформулируй.", threadId); return; }
 
     // Store response in all memory layers
-    storeMemoryDB(`Q: ${q.slice(0, 200)}\nA: ${text.slice(0, 500)}`, "qa", chatId).catch(() => {});
-    storeVector(`Q: ${q}\nA: ${text.slice(0, 500)}`, { type: "qa", chatId }).catch(() => {});
-    extractTriples(text.slice(0, 1000), "assistant").catch(() => {});
-    appendSessionLog(`Q: ${q.slice(0, 80)} → A: ${text.slice(0, 80)}`);
+    storeMemoryDB(`Q: ${q.slice(0, 500)}\nA: ${text.slice(0, 4000)}`, "qa", chatId).catch(() => {});
+    storeVector(`Q: ${q.slice(0, 500)}\nA: ${text.slice(0, 2000)}`, { type: "qa", chatId }).catch(() => {});
+    extractTriples(text.slice(0, 2000), "assistant").catch(() => {});
+    appendSessionLog(`Q: ${q.slice(0, 150)} → A: ${text.slice(0, 150)}`);
 
     const full = text + (cost > 0 ? `\n\n_Стоимость: $${cost.toFixed(2)}_` : "");
     await sendLong(chatId, full, threadId);
@@ -637,7 +643,7 @@ async function processQuestion(q: string, chatId: string, threadId?: number): Pr
       console.log(`FOLLOW-UP: ${task.followUps.length} messages for ${key}`);
       activeTasks.delete(key);
       // Re-enqueue combined follow-ups as a new task
-      enqueueTask(chatId, `Контекст предыдущего ответа: ${text.slice(0, 500)}\n\n${followUp}`, threadId);
+      enqueueTask(chatId, `Контекст предыдущего ответа: ${text.slice(0, 3000)}\n\n${followUp}`, threadId);
     } else {
       activeTasks.delete(key);
     }
