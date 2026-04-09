@@ -582,6 +582,10 @@ app.post("/webhooks/telegram", async (request, reply) => {
     if (cls === "command") { const r = handleCommand(text, chatId); if (r) await tgSend(chatId, r, threadId); return reply.send({ ok: true }); }
 
     // Real question — enqueue with concurrency control
+    if (shuttingDown) {
+      await tgSend(chatId, "🔄 Перезапускаюсь, отправь через 30 секунд.", threadId);
+      return reply.send({ ok: true });
+    }
     reply.send({ ok: true });
     enqueueTask(chatId, text, threadId, String(msg.from.id));
   } catch (err) { return reply.send({ ok: false, error: err instanceof Error ? err.message : "error" }); }
@@ -677,6 +681,48 @@ setInterval(() => {
     }
   }
 }, 60_000);
+
+// ============================================================
+// Graceful shutdown — notify users, wait for tasks, then exit
+// ============================================================
+let shuttingDown = false;
+
+async function gracefulShutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`SHUTDOWN: ${signal} received, ${activeTasks.size} active tasks, ${taskQueue.length} queued`);
+
+  // Notify queued task owners immediately
+  for (const item of taskQueue) {
+    tgSend(item.chatId, "🔄 Бот перезапускается. Отправь запрос ещё раз через 30 секунд.", item.threadId);
+  }
+  taskQueue.length = 0;
+
+  if (activeTasks.size === 0) {
+    process.exit(0);
+    return;
+  }
+
+  // Give active tasks a grace period to finish (up to 60s)
+  console.log(`SHUTDOWN: waiting up to 60s for ${activeTasks.size} active tasks...`);
+  const deadline = Date.now() + 60_000;
+
+  const checkDone = setInterval(() => {
+    if (activeTasks.size === 0 || Date.now() > deadline) {
+      clearInterval(checkDone);
+      // Notify users of tasks we couldn't finish
+      for (const [, task] of activeTasks) {
+        if (task.heartbeat) clearInterval(task.heartbeat);
+        const elapsed = Math.round((Date.now() - task.startedAt) / 60000);
+        tgSend(task.chatId, `🔄 Бот перезапустился пока я работала (${elapsed} мин). Отправь запрос ещё раз.`, task.threadId);
+      }
+      setTimeout(() => process.exit(0), 2000); // 2s for messages to send
+    }
+  }, 1000);
+}
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 // ============================================================
 // Start
