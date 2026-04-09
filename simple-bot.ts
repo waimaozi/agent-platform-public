@@ -200,12 +200,34 @@ async function queryGraph(query: string): Promise<string[]> {
 }
 
 // ============================================================
+// Session log — simple file-based recent memory (always works)
+// ============================================================
+const SESSION_LOG = process.env.SESSION_LOG_PATH ?? "/home/user/agent-soul/memory/session-log.md";
+
+function appendSessionLog(entry: string): void {
+  try {
+    const ts = new Date().toISOString().slice(0, 16);
+    appendFileSync(SESSION_LOG, `${ts} | ${entry.slice(0, 200)}\n`);
+  } catch {}
+}
+
+function getRecentSession(): string {
+  try {
+    if (!existsSync(SESSION_LOG)) return "";
+    const lines = readFileSync(SESSION_LOG, "utf-8").trim().split("\n");
+    const recent = lines.slice(-20).join("\n");
+    return recent ? `\nПоследние события:\n${recent}\n` : "";
+  } catch { return ""; }
+}
+
+// ============================================================
 // Unified memory: store + search (auto-picks available backends)
 // ============================================================
 async function rememberMessage(text: string, chatId: string, userId?: string): Promise<void> {
   storeMemoryDB(text, "message", chatId, userId).catch(() => {});
   storeVector(text, { type: "message", chatId }).catch(() => {});
   extractTriples(text, `user:${userId ?? "unknown"}`).catch(() => {});
+  appendSessionLog(text.slice(0, 200));
 }
 
 async function recallContext(query: string): Promise<string> {
@@ -263,7 +285,7 @@ const JUNK_RE = /^[\s\p{Emoji_Presentation}\p{Extended_Pictographic}.!?,;:\-_=+*
 
 const BANTER_REPLIES = [
   "Привет! Чем могу помочь?",
-  "Привет! Happy to see you. Что делаем?",
+  "Привет! Рада тебя видеть. Что делаем?",
   "Здравствуй! Слушаю.",
   "Привет! Готова к работе.",
 ];
@@ -426,8 +448,9 @@ async function processQuestion(q: string, chatId: string, threadId?: number): Pr
   const typing = setInterval(() => tgTyping(chatId), 4000);
   try {
     const context = await recallContext(q);
+    const session = getRecentSession();
     const facts = pinnedFacts.get(chatId);
-    const prefix = [context, facts?.length ? `Факты:\n${facts.map(f => `- ${f}`).join("\n")}` : ""].filter(Boolean).join("\n\n");
+    const prefix = [context, session, facts?.length ? `Факты:\n${facts.map(f => `- ${f}`).join("\n")}` : ""].filter(Boolean).join("\n\n");
 
     console.log("CLAUDE:", q.slice(0, 60));
     const { text, cost } = await callClaude(prefix ? `${prefix}\n\n${q}` : q);
@@ -436,10 +459,11 @@ async function processQuestion(q: string, chatId: string, threadId?: number): Pr
 
     if (!text) { await tgSend(chatId, "Нет ответа. Переформулируй.", threadId); return; }
 
-    // Store response
+    // Store response in all memory layers
     storeMemoryDB(`Q: ${q.slice(0, 200)}\nA: ${text.slice(0, 500)}`, "qa", chatId).catch(() => {});
     storeVector(`Q: ${q}\nA: ${text.slice(0, 500)}`, { type: "qa", chatId }).catch(() => {});
     extractTriples(text.slice(0, 1000), "assistant").catch(() => {});
+    appendSessionLog(`Q: ${q.slice(0, 80)} → A: ${text.slice(0, 80)}`);
 
     const full = text + (cost > 0 ? `\n\n_Стоимость: $${cost.toFixed(2)}_` : "");
     if (full.length <= 4000) { await tgSend(chatId, full, threadId); }
