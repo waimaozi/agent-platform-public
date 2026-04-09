@@ -131,38 +131,71 @@ async function embedText(text: string, inputType: string): Promise<number[] | nu
   } catch { return null; }
 }
 
-async function storeVector(text: string, metadata: Record<string, string>): Promise<void> {
-  if (!HAS_VECTOR) return;
+async function storeVector(text: string, metadata: Record<string, string>): Promise<string | null> {
+  if (!HAS_VECTOR) return null;
   const embedding = await embedText(text, "search_document");
-  if (!embedding) return;
+  if (!embedding) return null;
   try {
+    const id = `mem-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     await fetch(`https://${PINECONE_HOST}/vectors/upsert`, {
       method: "POST",
       headers: { "Api-Key": PINECONE_API_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({ vectors: [{ id: `mem-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, values: embedding, metadata: { ...metadata, text: text.slice(0, 4000), timestamp: new Date().toISOString() } }] })
+      body: JSON.stringify({ vectors: [{ id, values: embedding, metadata: { ...metadata, text: text.slice(0, 4000), timestamp: new Date().toISOString() } }] })
     });
-  } catch {}
+    return id; // enrichMemory will update this vector's metadata async
+  } catch { return null; }
 }
 
-async function searchVector(query: string, topK: number = 5): Promise<string[]> {
+async function searchVector(query: string, topK: number = 5, topicId?: string): Promise<string[]> {
   if (!HAS_VECTOR) return [];
   const embedding = await embedText(query, "search_query");
   if (!embedding) return [];
   try {
-    const res = await fetch(`https://${PINECONE_HOST}/query`, {
+    // Two searches: scoped (same topic, high relevance) + global (cross-topic, lower bar)
+    const results: string[] = [];
+
+    if (topicId) {
+      // Scoped search — same topic, threshold 0.25
+      const scopedRes = await fetch(`https://${PINECONE_HOST}/query`, {
+        method: "POST",
+        headers: { "Api-Key": PINECONE_API_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ vector: embedding, topK, includeMetadata: true,
+          filter: { topicId: { "$eq": topicId } } })
+      });
+      const scopedData = await scopedRes.json() as { matches?: Array<{ score: number; metadata?: { text?: string } }> };
+      const scoped = (scopedData.matches ?? []).filter(m => m.score > 0.25).map(m => m.metadata?.text ?? "").filter(Boolean);
+      if (scoped.length > 0) results.push(`[Из этого топика]\n${scoped.join("\n---\n")}`);
+    }
+
+    // Global search — all topics, higher threshold
+    const globalRes = await fetch(`https://${PINECONE_HOST}/query`, {
       method: "POST",
       headers: { "Api-Key": PINECONE_API_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({ vector: embedding, topK, includeMetadata: true })
+      body: JSON.stringify({ vector: embedding, topK: 3, includeMetadata: true })
     });
-    const data = await res.json() as { matches?: Array<{ score: number; metadata?: { text?: string } }> };
-    return (data.matches ?? []).filter(m => m.score > 0.3).map(m => m.metadata?.text ?? "").filter(Boolean);
+    const globalData = await globalRes.json() as { matches?: Array<{ score: number; metadata?: { text?: string } }> };
+    const global = (globalData.matches ?? []).filter(m => m.score > 0.4).map(m => m.metadata?.text ?? "").filter(Boolean);
+    if (global.length > 0) results.push(`[Из других контекстов]\n${global.join("\n---\n")}`);
+
+    return results;
   } catch { return []; }
 }
 
 // ============================================================
 // Optional: Knowledge graph (Groq + Postgres)
 // ============================================================
-async function extractTriples(text: string, source: string): Promise<void> {
+// ============================================================
+// Memory enrichment — one Groq call for triples + tags (async, non-blocking)
+// ============================================================
+interface MemoryTags {
+  project: string;
+  type: string;
+  entities: string[];
+  summary: string;
+  triples: Array<{ subject: string; predicate: string; object: string }>;
+}
+
+async function enrichMemory(text: string, source: string, vectorId?: string): Promise<void> {
   if (!HAS_GRAPH || text.length < 20) return;
   try {
     const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -171,24 +204,54 @@ async function extractTriples(text: string, source: string): Promise<void> {
       body: JSON.stringify({
         model: "llama-3.1-8b-instant",
         messages: [
-          { role: "system", content: "Extract knowledge triples from text. Return ONLY a JSON array of {subject, predicate, object}. Never return empty if entities exist." },
-          { role: "user", content: `Text: "${text.slice(0, 1000)}"\n\nTriples:` }
+          { role: "system", content: `Analyze the message. Return ONLY valid JSON (no markdown):
+{
+  "project": "project name or 'general' if unclear",
+  "type": "task|discussion|decision|reference|question|report",
+  "entities": ["person or thing names mentioned"],
+  "summary": "one line summary in the same language as input",
+  "triples": [{"subject":"...","predicate":"...","object":"..."}]
+}
+Keep project names consistent (e.g. always "chemitech-sgr", "byplan", "agent-platform").` },
+          { role: "user", content: text.slice(0, 2000) }
         ],
-        max_tokens: 500, temperature: 0.1
+        max_tokens: 600, temperature: 0.1
       })
     });
     const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
     const content = data.choices?.[0]?.message?.content ?? "";
-    const jsonMatch = content.match(/\[[\s\S]*\]/);
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return;
-    const triples = JSON.parse(jsonMatch[0]) as Array<{ subject: string; predicate: string; object: string }>;
+    const tags: MemoryTags = JSON.parse(jsonMatch[0]);
+
+    // Store triples in knowledge graph
     const pool = getPool();
-    for (const t of triples.slice(0, 10)) {
+    for (const t of (tags.triples ?? []).slice(0, 10)) {
       if (t.subject && t.predicate && t.object) {
         await pool.query("INSERT INTO knowledge_triples (subject, predicate, object, source) VALUES ($1, $2, $3, $4) ON CONFLICT (subject, predicate, object) DO NOTHING",
           [t.subject.toLowerCase().trim(), t.predicate.toLowerCase().trim(), t.object.toLowerCase().trim(), source]);
       }
     }
+
+    // Update Pinecone vector with enriched metadata (if we have a vector ID)
+    if (HAS_VECTOR && vectorId) {
+      // Pinecone update API — add tags without re-embedding
+      await fetch(`https://${PINECONE_HOST}/vectors/update`, {
+        method: "POST",
+        headers: { "Api-Key": PINECONE_API_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: vectorId,
+          setMetadata: {
+            project: tags.project ?? "general",
+            memType: tags.type ?? "message",
+            entities: (tags.entities ?? []).join(", "),
+            summary: tags.summary ?? "",
+          }
+        })
+      });
+    }
+
+    console.log(`ENRICHED: project=${tags.project} type=${tags.type} entities=${(tags.entities ?? []).length} triples=${(tags.triples ?? []).length}`);
   } catch {}
 }
 
@@ -242,23 +305,25 @@ function getRecentSession(): string {
 // ============================================================
 // Unified memory: store + search (auto-picks available backends)
 // ============================================================
-async function rememberMessage(text: string, chatId: string, userId?: string): Promise<void> {
+async function rememberMessage(text: string, chatId: string, userId?: string, topicId?: string): Promise<void> {
   storeMemoryDB(text, "message", chatId, userId).catch(() => {});
-  storeVector(text, { type: "message", chatId }).catch(() => {});
-  extractTriples(text, `user:${userId ?? "unknown"}`).catch(() => {});
+  // Store vector with topicId, then async enrich with tags
+  storeVector(text, { type: "message", chatId, ...(topicId ? { topicId } : {}) })
+    .then(vecId => { enrichMemory(text, `user:${userId ?? "unknown"}`, vecId ?? undefined).catch(() => {}); })
+    .catch(() => {});
   appendSessionLog(text.slice(0, 200));
 }
 
-async function recallContext(query: string): Promise<string> {
+async function recallContext(query: string, topicId?: string): Promise<string> {
   const parts: string[] = [];
 
   // Postgres full-text (always available) — full text, no truncation
   const dbResults = await searchMemoryDB(query);
   if (dbResults.length > 0) parts.push(`Релевантные записи из памяти:\n${dbResults.join("\n---\n")}`);
 
-  // Vector search (if configured) — full text
-  const vecResults = await searchVector(query);
-  if (vecResults.length > 0) parts.push(`Семантически похожее:\n${vecResults.join("\n---\n")}`);
+  // Vector search (if configured) — scoped by topic + global
+  const vecResults = await searchVector(query, 5, topicId ? String(topicId) : undefined);
+  if (vecResults.length > 0) parts.push(`Семантически похожее:\n${vecResults.join("\n\n")}`);
 
   // Graph (if configured)
   const graphResults = await queryGraph(query);
@@ -392,7 +457,7 @@ function enqueueTask(chatId: string, prompt: string, threadId?: number, userId?:
     tgSend(chatId, "⏳ Принято, работаю...", threadId);
   }
 
-  rememberMessage(prompt, chatId, userId).catch(() => {});
+  rememberMessage(prompt, chatId, userId, threadId ? String(threadId) : undefined).catch(() => {});
   new Promise<void>(resolve => {
     taskQueue.push({ chatId, threadId, prompt, userId, resolve });
     drainQueue();
@@ -584,7 +649,7 @@ app.post("/webhooks/telegram", async (request, reply) => {
 
     const cls = classify(text);
     if (cls === "junk") return reply.send({ ok: true });
-    if (cls === "banter") { await tgSend(chatId, BANTER_REPLIES[Math.floor(Math.random() * BANTER_REPLIES.length)], threadId); rememberMessage(text, chatId); return reply.send({ ok: true }); }
+    if (cls === "banter") { await tgSend(chatId, BANTER_REPLIES[Math.floor(Math.random() * BANTER_REPLIES.length)], threadId); rememberMessage(text, chatId, undefined, threadId ? String(threadId) : undefined); return reply.send({ ok: true }); }
     if (cls === "command") { const r = handleCommand(text, chatId); if (r) await tgSend(chatId, r, threadId); return reply.send({ ok: true }); }
 
     // Real question — enqueue with concurrency control
@@ -614,7 +679,7 @@ async function processQuestion(q: string, chatId: string, threadId?: number): Pr
   }, HEARTBEAT_INTERVAL);
 
   try {
-    const context = await recallContext(q);
+    const context = await recallContext(q, threadId ? String(threadId) : undefined);
     const session = getRecentSession();
     const facts = pinnedFacts.get(chatId);
     const prefix = [context, session, facts?.length ? `Факты:\n${facts.map(f => `- ${f}`).join("\n")}` : ""].filter(Boolean).join("\n\n");
@@ -629,9 +694,11 @@ async function processQuestion(q: string, chatId: string, threadId?: number): Pr
     if (!text) { await tgSend(chatId, "Нет ответа. Переформулируй.", threadId); return; }
 
     // Store response in all memory layers
+    const topicStr = threadId ? String(threadId) : undefined;
     storeMemoryDB(`Q: ${q.slice(0, 500)}\nA: ${text.slice(0, 4000)}`, "qa", chatId).catch(() => {});
-    storeVector(`Q: ${q.slice(0, 500)}\nA: ${text.slice(0, 2000)}`, { type: "qa", chatId }).catch(() => {});
-    extractTriples(text.slice(0, 2000), "assistant").catch(() => {});
+    storeVector(`Q: ${q.slice(0, 500)}\nA: ${text.slice(0, 2000)}`, { type: "qa", chatId, ...(topicStr ? { topicId: topicStr } : {}) })
+      .then(vecId => { enrichMemory(`Q: ${q.slice(0, 500)}\nA: ${text.slice(0, 1000)}`, "assistant", vecId ?? undefined).catch(() => {}); })
+      .catch(() => {});
     appendSessionLog(`Q: ${q.slice(0, 150)} → A: ${text.slice(0, 150)}`);
 
     const full = text + (cost > 0 ? `\n\n_Стоимость: $${cost.toFixed(2)}_` : "");
