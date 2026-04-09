@@ -104,3 +104,25 @@ agent-soul/FULL-CONTEXT.md — merged (auto-generated)
 .env                   — configuration
 docker-compose.yml     — Postgres + Redis
 ```
+
+## Resilience — How the Bot Handles Failures
+
+The bot has built-in self-healing:
+
+- **Concurrency limit:** max 2 Claude processes at once, rest queued with position feedback
+- **Heartbeat:** user gets "still working..." every 2 min so they know bot is alive
+- **Stale task reaper:** kills stuck processes past 30 min timeout + notifies user
+- **Per-chat dedup:** follow-up messages batched while a task is running
+- **Message splitting:** responses over 4096 chars split at newline boundaries
+- **Markdown fallback:** tries Markdown first, retries plain text if Telegram rejects
+
+### SOUL.md Resilience Rules (add these to any agent personality)
+
+Every SOUL.md should include rules for handling external API failures:
+
+- Set 60s timeout on any external API call (curl --max-time 60)
+- Max 2 retries on a failing service, then report and move on
+- Never silently loop — tell the user what failed and suggest trying later
+- A fast honest answer is better than a long empty wait
+
+Without these rules, the agent may spend its entire 30-min timeout retrying a dead API.
