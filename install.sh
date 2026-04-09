@@ -1,5 +1,9 @@
 #!/bin/bash
 set -e
+n# Keep SSH alive during install
+(while true; do echo -n "."; sleep 30; done) &
+KEEPALIVE_PID=$!
+trap "kill $KEEPALIVE_PID 2>/dev/null" EXIT
 
 echo ""
 echo "╔══════════════════════════════════════════╗"
