@@ -291,7 +291,7 @@ async function queryGraph(query: string): Promise<string[]> {
 // ============================================================
 // Session log — simple file-based recent memory (always works)
 // ============================================================
-const SESSION_LOG = process.env.SESSION_LOG_PATH ?? "/home/openclaw/mira-soul/memory/session-log.md";
+const SESSION_LOG = process.env.SESSION_LOG_PATH ?? "/opt/agent-platform/data/session-log.md";
 
 function appendSessionLog(entry: string): void {
   try {
