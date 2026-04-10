@@ -161,8 +161,12 @@ function renderPage(): string {
 
   <!-- Step 3: API Keys -->
   <div class="step ${state.step === 3 ? 'active' : ''}" id="step3">
-    <div class="step-title">3. API Keys</div>
-    <div class="step-desc">Free tier accounts work for all of these.</div>
+    <div class="step-title">3. Memory (Optional)</div>
+    <div class="step-desc">
+      These are <strong>100% optional</strong>. Your bot works with just Telegram + Claude.<br>
+      Adding these unlocks vector memory and knowledge graph — your bot remembers past conversations.<br>
+      Skip if you want to try the bot first, add memory later.
+    </div>
 
     <label>Pinecone API Key — <a href="https://app.pinecone.io" target="_blank">Get key</a></label>
     <input type="text" id="pinecone-key" placeholder="pcsk_..." value="${state.pineconeKey}">
@@ -179,6 +183,7 @@ function renderPage(): string {
     <div id="keys-status"></div>
     <div class="btn-row">
       <button class="btn btn-secondary" onclick="goStep(2)">← Back</button>
+      <button class="btn btn-secondary" onclick="skipKeys()" style="margin-right:0">Skip — no memory →</button>
       <button class="btn btn-primary" onclick="validateKeys()">Validate & Continue →</button>
     </div>
   </div>
@@ -264,6 +269,11 @@ async function validateClaude() {
   } else {
     setStatus('claude-status', 'err', '✗ ' + res.error + '<br><br>SSH into your server and run: <code>claude</code>');
   }
+}
+
+async function skipKeys() {
+  await post(/api/skip-keys, {});
+  location.reload();
 }
 
 async function validateKeys() {
@@ -356,45 +366,64 @@ app.post("/api/validate-claude", async () => {
   }
 });
 
+app.post("/api/skip-keys", async () => {
+  state.step = 4;
+  return { ok: true };
+});
+
 app.post("/api/validate-keys", async (request) => {
   const { pineconeKey, pineconeHost, cohereKey, groqKey } = request.body as Record<string, string>;
   const errors: string[] = [];
+  const warnings: string[] = [];
 
-  // Validate Pinecone
-  try {
-    const res = await fetch(`https://${pineconeHost}/describe_index_stats`, {
-      method: "POST", headers: { "Api-Key": pineconeKey, "Content-Type": "application/json" }, body: "{}"
-    });
-    if (!res.ok) errors.push("Pinecone: invalid key or host");
-  } catch { errors.push("Pinecone: could not connect to host"); }
+  // Only validate keys that were provided
+  if (pineconeKey && pineconeHost) {
+    try {
+      const res = await fetch(`https://${pineconeHost}/describe_index_stats`, {
+        method: "POST", headers: { "Api-Key": pineconeKey, "Content-Type": "application/json" }, body: "{}",
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) errors.push("Pinecone: invalid key or host");
+    } catch { errors.push("Pinecone: could not connect to host"); }
+  } else if (pineconeKey || pineconeHost) {
+    errors.push("Pinecone: need both API key AND index host");
+  }
 
-  // Validate Cohere
-  try {
-    const res = await fetch("https://api.cohere.com/v1/embed", {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${cohereKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ texts: ["test"], model: "embed-multilingual-v3.0", input_type: "search_document" })
-    });
-    if (!res.ok) errors.push("Cohere: invalid API key");
-  } catch { errors.push("Cohere: could not connect"); }
+  if (cohereKey) {
+    try {
+      const res = await fetch("https://api.cohere.com/v1/embed", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${cohereKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ texts: ["test"], model: "embed-multilingual-v3.0", input_type: "search_document" }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) errors.push("Cohere: invalid API key");
+    } catch { errors.push("Cohere: could not connect"); }
+  }
 
-  // Validate Groq
-  try {
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${groqKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "llama-3.1-8b-instant", messages: [{ role: "user", content: "hi" }], max_tokens: 5 })
-    });
-    if (!res.ok) errors.push("Groq: invalid API key");
-  } catch { errors.push("Groq: could not connect"); }
+  if (!pineconeKey && !cohereKey) warnings.push("No vector memory — bot works but won\t remember past conversations);
+
+  if (groqKey) {
+    try {
+      const res = await fetch(https://api.groq.com/openai/v1/chat/completions, {
+        method: POST,
+        headers: { Authorization: , Content-Type: application/json },
+        body: JSON.stringify({ model: llama-3.1-8b-instant, messages: [{ role: user, content: hi }], max_tokens: 5 }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) errors.push(Groq: invalid API key);
+    } catch { errors.push(Groq: could not connect); }
+  } else {
+    warnings.push(No knowledge graph — bot works but won	 extract entity relationships");
+  }
 
   if (errors.length === 0) {
-    state.pineconeKey = pineconeKey;
-    state.pineconeHost = pineconeHost;
-    state.cohereKey = cohereKey;
-    state.groqKey = groqKey;
+    state.pineconeKey = pineconeKey || "";
+    state.pineconeHost = pineconeHost || "";
+    state.cohereKey = cohereKey || "";
+    state.groqKey = groqKey || "";
     state.step = 4;
-    return { ok: true };
+    return { ok: true, warnings };
   }
   return { ok: false, errors };
 });
