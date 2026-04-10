@@ -663,8 +663,13 @@ app.post("/webhooks/telegram", async (request, reply) => {
     // Classify BEFORE adding topic prefix — so "привет" in topics still matches banter regex
     const cls = classify(text);
     if (threadId) text = `[Топик #${threadId}] ${text}`;
-    if (cls === "junk") return reply.send({ ok: true });
-    if (cls === "banter") { await tgSend(chatId, BANTER_REPLIES[Math.floor(Math.random() * BANTER_REPLIES.length)], threadId); rememberMessage(text, chatId, undefined, threadId ? String(threadId) : undefined); return reply.send({ ok: true }); }
+
+    // If there's an active task, skip banter/junk — "да", "ок", "хорошо" might be confirmations
+    const key = taskKey(chatId, threadId);
+    const hasActiveTask = activeTasks.has(key);
+
+    if (cls === "junk" && !hasActiveTask) return reply.send({ ok: true });
+    if (cls === "banter" && !hasActiveTask) { await tgSend(chatId, BANTER_REPLIES[Math.floor(Math.random() * BANTER_REPLIES.length)], threadId); rememberMessage(text, chatId, undefined, threadId ? String(threadId) : undefined); return reply.send({ ok: true }); }
     if (cls === "command") { const r = handleCommand(text, chatId); if (r) await tgSend(chatId, r, threadId); return reply.send({ ok: true }); }
 
     // Real question — enqueue with concurrency control
