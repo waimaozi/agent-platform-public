@@ -291,7 +291,7 @@ async function queryGraph(query: string): Promise<string[]> {
 // ============================================================
 // Session log — simple file-based recent memory (always works)
 // ============================================================
-const SESSION_LOG = process.env.SESSION_LOG_PATH ?? "/opt/agent-platform/data/session-log.md";
+const SESSION_LOG = process.env.SESSION_LOG_PATH ?? "/home/openclaw/mira-soul/memory/session-log.md";
 
 function appendSessionLog(entry: string): void {
   try {
@@ -669,7 +669,7 @@ app.post("/webhooks/telegram", async (request, reply) => {
     const hasActiveTask = activeTasks.has(key);
 
     if (cls === "junk" && !hasActiveTask) return reply.send({ ok: true });
-    if (cls === "banter" && !hasActiveTask) { await tgSend(chatId, BANTER_REPLIES[Math.floor(Math.random() * BANTER_REPLIES.length)], threadId); rememberMessage(text, chatId, undefined, threadId ? String(threadId) : undefined); return reply.send({ ok: true }); }
+    if (cls === "banter" && !hasActiveTask) { await tgSend(chatId, BANTER_REPLIES[Math.floor(Math.random() * BANTER_REPLIES.length)], threadId); return reply.send({ ok: true }); }
     if (cls === "command") { const r = handleCommand(text, chatId); if (r) await tgSend(chatId, r, threadId); return reply.send({ ok: true }); }
 
     // Real question — enqueue with concurrency control
