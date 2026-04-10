@@ -272,7 +272,7 @@ async function validateClaude() {
 }
 
 async function skipKeys() {
-  await post(/api/skip-keys, {});
+  await post('/api/skip-keys', {});
   location.reload();
 }
 
