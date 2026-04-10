@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { spawn, execSync, ChildProcess } from "node:child_process";
 import { readFileSync, writeFileSync as fsWriteFile, appendFileSync, existsSync } from "node:fs";
 import Fastify from "fastify";
@@ -136,7 +136,8 @@ async function storeVector(text: string, metadata: Record<string, string>): Prom
   const embedding = await embedText(text, "search_document");
   if (!embedding) return null;
   try {
-    const id = `mem-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    // Deterministic ID from content hash — same text = same ID = upsert dedup
+    const id = `mem-${createHash("sha256").update(text.slice(0, 500) + (metadata.chatId ?? "") + (metadata.topicId ?? "")).digest("hex").slice(0, 16)}`;
     await fetch(`https://${PINECONE_HOST}/vectors/upsert`, {
       method: "POST",
       headers: { "Api-Key": PINECONE_API_KEY, "Content-Type": "application/json" },
