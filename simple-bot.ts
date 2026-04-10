@@ -124,7 +124,8 @@ async function embedText(text: string, inputType: string): Promise<number[] | nu
     const res = await fetch("https://api.cohere.com/v1/embed", {
       method: "POST",
       headers: { "Authorization": `Bearer ${COHERE_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ texts: [text.slice(0, 2000)], model: "embed-multilingual-v3.0", input_type: inputType, truncate: "END" })
+      body: JSON.stringify({ texts: [text.slice(0, 2000)], model: "embed-multilingual-v3.0", input_type: inputType, truncate: "END" }),
+      signal: AbortSignal.timeout(15_000),
     });
     const data = await res.json() as { embeddings?: number[][] };
     return data.embeddings?.[0] ?? null;
@@ -141,7 +142,8 @@ async function storeVector(text: string, metadata: Record<string, string>): Prom
     await fetch(`https://${PINECONE_HOST}/vectors/upsert`, {
       method: "POST",
       headers: { "Api-Key": PINECONE_API_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({ vectors: [{ id, values: embedding, metadata: { ...metadata, text: text.slice(0, 4000), timestamp: new Date().toISOString() } }] })
+      body: JSON.stringify({ vectors: [{ id, values: embedding, metadata: { ...metadata, text: text.slice(0, 4000), timestamp: new Date().toISOString() } }] }),
+      signal: AbortSignal.timeout(15_000),
     });
     return id; // enrichMemory will update this vector's metadata async
   } catch { return null; }
@@ -161,7 +163,8 @@ async function searchVector(query: string, topK: number = 5, topicId?: string): 
         method: "POST",
         headers: { "Api-Key": PINECONE_API_KEY, "Content-Type": "application/json" },
         body: JSON.stringify({ vector: embedding, topK, includeMetadata: true,
-          filter: { topicId: { "$eq": topicId } } })
+          filter: { topicId: { "$eq": topicId } } }),
+        signal: AbortSignal.timeout(15_000),
       });
       const scopedData = await scopedRes.json() as { matches?: Array<{ score: number; metadata?: { text?: string } }> };
       const scoped = (scopedData.matches ?? []).filter(m => m.score > 0.25).map(m => m.metadata?.text ?? "").filter(Boolean);
@@ -172,7 +175,8 @@ async function searchVector(query: string, topK: number = 5, topicId?: string): 
     const globalRes = await fetch(`https://${PINECONE_HOST}/query`, {
       method: "POST",
       headers: { "Api-Key": PINECONE_API_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({ vector: embedding, topK: 3, includeMetadata: true })
+      body: JSON.stringify({ vector: embedding, topK: 3, includeMetadata: true }),
+      signal: AbortSignal.timeout(15_000),
     });
     const globalData = await globalRes.json() as { matches?: Array<{ score: number; metadata?: { text?: string } }> };
     const global = (globalData.matches ?? []).filter(m => m.score > 0.4).map(m => m.metadata?.text ?? "").filter(Boolean);
@@ -217,7 +221,8 @@ Keep project names consistent (e.g. always "chemitech-sgr", "byplan", "agent-pla
           { role: "user", content: text.slice(0, 2000) }
         ],
         max_tokens: 600, temperature: 0.1
-      })
+      }),
+      signal: AbortSignal.timeout(15_000),
     });
     const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
     const content = data.choices?.[0]?.message?.content ?? "";
@@ -248,7 +253,8 @@ Keep project names consistent (e.g. always "chemitech-sgr", "byplan", "agent-pla
             entities: (tags.entities ?? []).join(", "),
             summary: tags.summary ?? "",
           }
-        })
+        }),
+        signal: AbortSignal.timeout(15_000),
       });
     }
 
@@ -261,7 +267,7 @@ async function queryGraph(query: string): Promise<string[]> {
     const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 3).slice(0, 5);
     if (words.length === 0) return [];
     const conds = words.map((_, i) => `(t.subject LIKE $${i+1} OR t.object LIKE $${i+1})`).join(" OR ");
-    const params = words.map(w => `%${w}%`);
+    const params = words.map(w => `%${w.replace(/%/g, "\\%").replace(/_/g, "\\_")}%`);
     // 2-hop recursive CTE: find direct matches, then follow connections one more hop
     const res = await getPool().query(`
       WITH RECURSIVE graph AS (
@@ -435,7 +441,7 @@ function drainQueue(): void {
       runningCount--;
       item.resolve();
       drainQueue();
-    });
+    }).catch(e => console.error("QUEUE_FATAL:", e));
   }
 }
 
@@ -459,7 +465,7 @@ function enqueueTask(chatId: string, prompt: string, threadId?: number, userId?:
   }
 
   rememberMessage(prompt, chatId, userId, threadId ? String(threadId) : undefined).catch(() => {});
-  new Promise<void>(resolve => {
+  void new Promise<void>(resolve => {
     taskQueue.push({ chatId, threadId, prompt, userId, resolve });
     drainQueue();
   });
@@ -629,9 +635,16 @@ app.get("/health", async () => ({
   now: new Date().toISOString(),
 }));
 
+// Webhook dedup — Telegram may redeliver if we respond slowly
+const seenUpdates = new Set<number>();
+const MAX_SEEN = 1000;
+
 app.post("/webhooks/telegram", async (request, reply) => {
   try {
     const p = schema.parse(request.body);
+    if (seenUpdates.has(p.update_id)) return reply.send({ ok: true });
+    seenUpdates.add(p.update_id);
+    if (seenUpdates.size > MAX_SEEN) { const first = seenUpdates.values().next().value; if (first !== undefined) seenUpdates.delete(first); }
     const msg = p.message;
     if (!msg) return reply.send({ ok: true });
     const chatId = String(msg.chat.id);
@@ -645,10 +658,11 @@ app.post("/webhooks/telegram", async (request, reply) => {
     else if (msg.voice) filePath = await downloadFile(msg.voice.file_id);
     if (filePath && !text) text = `Пользователь отправил файл: ${filePath}. Прочитай и расскажи.`;
     else if (filePath) text = `Файл: ${filePath}. ${text}`;
-    if (threadId) text = `[Топик #${threadId}] ${text}`;
     if (!text) return reply.send({ ok: true });
 
+    // Classify BEFORE adding topic prefix — so "привет" in topics still matches banter regex
     const cls = classify(text);
+    if (threadId) text = `[Топик #${threadId}] ${text}`;
     if (cls === "junk") return reply.send({ ok: true });
     if (cls === "banter") { await tgSend(chatId, BANTER_REPLIES[Math.floor(Math.random() * BANTER_REPLIES.length)], threadId); rememberMessage(text, chatId, undefined, threadId ? String(threadId) : undefined); return reply.send({ ok: true }); }
     if (cls === "command") { const r = handleCommand(text, chatId); if (r) await tgSend(chatId, r, threadId); return reply.send({ ok: true }); }
