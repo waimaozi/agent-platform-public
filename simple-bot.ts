@@ -168,7 +168,7 @@ async function searchVector(query: string, topK: number = 5, topicId?: string): 
       });
       const scopedData = await scopedRes.json() as { matches?: Array<{ score: number; metadata?: { text?: string } }> };
       const scoped = (scopedData.matches ?? []).filter(m => m.score > 0.25).map(m => m.metadata?.text ?? "").filter(Boolean);
-      if (scoped.length > 0) results.push(`[Из этого топика]\n${scoped.join("\n---\n")}`);
+      if (scoped.length > 0) results.push(`[From this topic]\n${scoped.join("\n---\n")}`);
     }
 
     // Global search — all topics, higher threshold
@@ -180,7 +180,7 @@ async function searchVector(query: string, topK: number = 5, topicId?: string): 
     });
     const globalData = await globalRes.json() as { matches?: Array<{ score: number; metadata?: { text?: string } }> };
     const global = (globalData.matches ?? []).filter(m => m.score > 0.4).map(m => m.metadata?.text ?? "").filter(Boolean);
-    if (global.length > 0) results.push(`[Из других контекстов]\n${global.join("\n---\n")}`);
+    if (global.length > 0) results.push(`[From other contexts]\n${global.join("\n---\n")}`);
 
     return results;
   } catch { return []; }
@@ -284,7 +284,7 @@ async function queryGraph(query: string): Promise<string[]> {
       FROM graph ORDER BY depth, subject LIMIT 15
     `, params);
     return res.rows.map((r: { subject: string; predicate: string; object: string; depth: number }) =>
-      `${r.subject} → ${r.predicate} → ${r.object}${r.depth > 1 ? " (связь)" : ""}`);
+      `${r.subject} → ${r.predicate} → ${r.object}${r.depth > 1 ? " (linked)" : ""}`);
   } catch { return []; }
 }
 
@@ -305,7 +305,7 @@ function getRecentSession(): string {
     if (!existsSync(SESSION_LOG)) return "";
     const lines = readFileSync(SESSION_LOG, "utf-8").trim().split("\n");
     const recent = lines.slice(-20).join("\n");
-    return recent ? `\nПоследние события:\n${recent}\n` : "";
+    return recent ? `\nRecent events:\n${recent}\n` : "";
   } catch { return ""; }
 }
 
@@ -326,21 +326,21 @@ async function recallContext(query: string, topicId?: string): Promise<string> {
 
   // Postgres full-text (always available) — full text, no truncation
   const dbResults = await searchMemoryDB(query);
-  if (dbResults.length > 0) parts.push(`Релевантные записи из памяти:\n${dbResults.join("\n---\n")}`);
+  if (dbResults.length > 0) parts.push(`Relevant memories:\n${dbResults.join("\n---\n")}`);
 
   // Vector search (if configured) — scoped by topic + global
   const vecResults = await searchVector(query, 5, topicId ? String(topicId) : undefined);
-  if (vecResults.length > 0) parts.push(`Семантически похожее:\n${vecResults.join("\n\n")}`);
+  if (vecResults.length > 0) parts.push(`Semantically similar:\n${vecResults.join("\n\n")}`);
 
   // Graph (if configured)
   const graphResults = await queryGraph(query);
-  if (graphResults.length > 0) parts.push(`Связи:\n${graphResults.map(r => `- ${r}`).join("\n")}`);
+  if (graphResults.length > 0) parts.push(`Connections:\n${graphResults.map(r => `- ${r}`).join("\n")}`);
 
   // Tell Claude how to dig deeper if the auto-recall isn't enough
-  parts.push(`Если нужно больше контекста — ты можешь сама:
-- psql: docker exec $(docker ps -q -f name=postgres) psql -U postgres -d agent_platform -c "SELECT text FROM memories WHERE text LIKE '%keyword%' ORDER BY ts DESC LIMIT 5;"
-- Файлы: grep -r 'keyword' /home/openclaw/mira-soul/memory/
-- Сессии: cat /home/openclaw/mira-soul/memory/session-log.md | tail -50`);
+  parts.push(`If you need more context, you can query directly:
+- DB: docker exec $(docker ps -q -f name=postgres) psql -U postgres -d agent_platform -c "SELECT text FROM memories WHERE text LIKE '%keyword%' ORDER BY ts DESC LIMIT 5;"
+- Files: grep -r 'keyword' /opt/agent-platform/agent-soul/
+- Session: cat /opt/agent-platform/data/session-log.md | tail -50`);
 
   return parts.join("\n\n");
 }
@@ -376,15 +376,15 @@ async function tgTyping(chatId: string): Promise<void> {
 // ============================================================
 // Frontdesk — regex filter
 // ============================================================
-const GREETING_RE = /^(привет|здравствуй|здравствуйте|хай|hello|hi|hey|добрый|доброе утро|добрый вечер|добрый день)[!.?,\s]*$/i;
-const BANTER_RE = /^(как дела|как ты|как жизнь|что нового|спасибо|благодарю|thanks|thank you|пока|до свидания|bye|ок|окей|okay|ладно|понятно|хорошо|отлично|круто|класс|норм|ну ок|да|нет|ага)[!.?,\s]*$/i;
+const GREETING_RE = /^(привет|здравствуй|здравствуйте|хай|hello|hi|hey|yo|sup|добрый|доброе утро|добрый вечер|добрый день|good morning|good evening|howdy|hola|bonjour)[!.?,\s]*$/i;
+const BANTER_RE = /^(как дела|как ты|как жизнь|что нового|спасибо|благодарю|thanks|thank you|thx|ty|пока|до свидания|bye|goodbye|see ya|cheers|ок|окей|okay|ok|ладно|понятно|хорошо|отлично|круто|класс|норм|ну ок|да|нет|ага|yes|no|yep|nope|sure|cool|nice|great|awesome|got it|understood|perfect|exactly|right|fine|alright|lol|haha|wow)[!.?,\s]*$/i;
 const JUNK_RE = /^[\s\p{Emoji_Presentation}\p{Extended_Pictographic}.!?,;:\-_=+*#@&()\[\]{}<>\/|~`'"…\d]*$/u;
 
 const BANTER_REPLIES = [
-  "Привет! Чем могу помочь?",
-  "Привет! Рада тебя видеть. Что делаем?",
-  "Здравствуй! Слушаю.",
-  "Привет! Готова к работе.",
+  "Hey! How can I help?",
+  "Hi! What are we working on?",
+  "Hello! I'm listening.",
+  "Hey! Ready to work.",
 ];
 
 function classify(text: string): "banter" | "junk" | "command" | "real" {
@@ -434,8 +434,8 @@ function drainQueue(): void {
       console.error("FAILED:", errMsg);
       const isTimeout = errMsg.includes("timeout");
       const userMsg = isTimeout
-        ? `⏱ Таймаут — Claude не уложился в ${Math.round(CLAUDE_TIMEOUT / 60000)} мин. Попробуй короче или разбей на части.`
-        : `❌ Ошибка: ${errMsg.slice(0, 200)}. Попробуй ещё раз.`;
+        ? `⏱ Timeout — Claude didn't finish in ${Math.round(CLAUDE_TIMEOUT / 60000)} min. Try shorter or break into parts.`
+        : `❌ Error: ${errMsg.slice(0, 200)}. Try again.`;
       tgSend(item.chatId, userMsg, item.threadId);
     }).finally(() => {
       runningCount--;
@@ -453,15 +453,15 @@ function enqueueTask(chatId: string, prompt: string, threadId?: number, userId?:
   if (existing) {
     existing.followUps.push(prompt);
     const elapsed = Math.round((Date.now() - existing.startedAt) / 60000);
-    tgSend(chatId, `📎 Добавила к текущей задаче (работаю уже ${elapsed} мин). Отвечу на всё вместе.`, threadId);
+    tgSend(chatId, `📎 Added to current task (working for ${elapsed} min). Will answer together.`, threadId);
     return;
   }
 
   if (runningCount >= MAX_CONCURRENT_CLAUDE) {
     const pos = taskQueue.length + 1;
-    tgSend(chatId, `⏳ Принято. Ты #${pos} в очереди, сейчас обрабатываю ${runningCount} задач.`, threadId);
+    tgSend(chatId, `⏳ Queued. You're #${pos}, processing ${runningCount} tasks.`, threadId);
   } else {
-    tgSend(chatId, "⏳ Принято, работаю...", threadId);
+    tgSend(chatId, "⏳ On it...", threadId);
   }
 
   rememberMessage(prompt, chatId, userId, threadId ? String(threadId) : undefined).catch(() => {});
@@ -477,7 +477,7 @@ function enqueueTask(chatId: string, prompt: string, threadId?: number, userId?:
 function callClaude(prompt: string, task?: ActiveTask): Promise<{ text: string; cost: number; tokens: number }> {
   // Truncate excessively long prompts to avoid timeouts
   const truncated = prompt.length > MAX_PROMPT_LENGTH
-    ? prompt.slice(0, MAX_PROMPT_LENGTH) + "\n\n[...сообщение обрезано, было " + prompt.length + " символов]"
+    ? prompt.slice(0, MAX_PROMPT_LENGTH) + "\n\n[...truncated, was " + prompt.length + " chars]"
     : prompt;
 
   return new Promise((resolve, reject) => {
@@ -515,7 +515,7 @@ function callClaude(prompt: string, task?: ActiveTask): Promise<{ text: string; 
         const env = JSON.parse(stdout.trim());
         partial = env.result ?? "";
       } catch {}
-      settle(() => reject(new Error(`Claude timeout (${elapsed}s)${partial ? `\n\nЧастичный ответ:\n${partial.slice(0, 500)}` : ""}`)));
+      settle(() => reject(new Error(`Claude timeout (${elapsed}s)${partial ? `\n\nPartial response:\n${partial.slice(0, 500)}` : ""}`)));
     }, CLAUDE_TIMEOUT);
 
     child.on("close", () => {
@@ -536,12 +536,12 @@ function callClaude(prompt: string, task?: ActiveTask): Promise<{ text: string; 
 // ============================================================
 // Commands
 // ============================================================
-const HELP = `Команды:
-/start — приветствие
-/help — список команд
-/status — что сейчас делаю
-/pin <факт> — запомнить факт
-${HAS_EMAIL ? "/email to Subject | Body — отправить письмо\n" : ""}/cost — стоимость`;
+const HELP = `Commands:
+/start — welcome
+/help — command list
+/status — current tasks
+/pin <fact> — remember a fact
+${HAS_EMAIL ? "/email to Subject | Body — send email\n" : ""}/cost — pricing info`;
 
 const pinnedFacts: Map<string, string[]> = new Map();
 
@@ -549,42 +549,42 @@ function handleCommand(text: string, chatId: string): string | null {
   const cmd = text.split(/\s+/)[0].toLowerCase();
   const rest = text.slice(cmd.length).trim();
   switch (cmd) {
-    case "/start": return `Привет! Я AI-ассистент.\n\n${HELP}\n\nИли просто напиши вопрос.`;
+    case "/start": return `Hi! I'm an AI assistant.\n\n${HELP}\n\nOr just ask a question.`;
     case "/help": return HELP;
     case "/pin": {
-      if (!rest) return "Формат: /pin <факт>";
+      if (!rest) return "Usage: /pin <fact>";
       const f = pinnedFacts.get(chatId) ?? [];
       f.push(rest); pinnedFacts.set(chatId, f);
       storeMemoryDB(`PINNED: ${rest}`, "pin", chatId).catch(() => {});
-      return `📌 Запомнила: ${rest}`;
+      return `📌 Remembered: ${rest}`;
     }
     case "/email": {
-      if (!HAS_EMAIL) return "Email не настроен. Добавьте SMTP_USER и SMTP_PASS в .env";
+      if (!HAS_EMAIL) return "Email not configured. Add SMTP_USER and SMTP_PASS to .env";
       const parts = rest.split("|").map(s => s.trim());
-      if (parts.length < 2) return "Формат: /email адрес Тема | Текст";
+      if (parts.length < 2) return "Usage: /email address Subject | Body";
       const sp = parts[0].indexOf(" ");
-      if (sp < 0) return "Формат: /email адрес Тема | Текст";
+      if (sp < 0) return "Usage: /email address Subject | Body";
       import("nodemailer").then(nm => {
         const t = nm.createTransport({ host: "smtp.gmail.com", port: 587, secure: false, auth: { user: SMTP_USER, pass: SMTP_PASS } });
         t.sendMail({ from: SMTP_USER, to: parts[0].slice(0, sp), subject: parts[0].slice(sp).trim(), text: parts.slice(1).join("|") })
-          .then(() => tgSend(chatId, "✉️ Отправлено"))
-          .catch(() => tgSend(chatId, "❌ Ошибка отправки"));
+          .then(() => tgSend(chatId, "✉️ Sent"))
+          .catch(() => tgSend(chatId, "❌ Send failed"));
       });
-      return "📤 Отправляю...";
+      return "📤 Sending...";
     }
     case "/status": {
-      if (activeTasks.size === 0 && taskQueue.length === 0) return "💤 Свободна, жду задач.";
+      if (activeTasks.size === 0 && taskQueue.length === 0) return "💤 Idle, waiting for tasks.";
       const lines: string[] = [];
       for (const [k, t] of activeTasks) {
         const elapsed = Math.round((Date.now() - t.startedAt) / 60000);
-        lines.push(`🔄 ${t.prompt.slice(0, 60)}... (${elapsed} мин)`);
-        if (t.followUps.length > 0) lines.push(`  📎 +${t.followUps.length} доп. сообщений в очереди`);
+        lines.push(`🔄 ${t.prompt.slice(0, 60)}... (${elapsed} min)`);
+        if (t.followUps.length > 0) lines.push(`  📎 +${t.followUps.length} follow-up messages queued`);
       }
-      if (taskQueue.length > 0) lines.push(`⏳ В очереди: ${taskQueue.length}`);
-      lines.push(`\nClaude процессов: ${runningCount}/${MAX_CONCURRENT_CLAUDE}`);
+      if (taskQueue.length > 0) lines.push(`⏳ Queued: ${taskQueue.length}`);
+      lines.push(`\nClaude processes: ${runningCount}/${MAX_CONCURRENT_CLAUDE}`);
       return lines.join("\n");
     }
-    case "/cost": return "📊 Простой вопрос ~$0.04, сложный ~$0.15-0.50";
+    case "/cost": return "📊 Simple question ~$0.04, complex task ~$0.15-0.50";
     default: return null;
   }
 }
@@ -656,13 +656,13 @@ app.post("/webhooks/telegram", async (request, reply) => {
     if (msg.document) filePath = await downloadFile(msg.document.file_id, msg.document.file_name);
     else if (msg.photo?.length) filePath = await downloadFile(msg.photo[msg.photo.length - 1].file_id);
     else if (msg.voice) filePath = await downloadFile(msg.voice.file_id);
-    if (filePath && !text) text = `Пользователь отправил файл: ${filePath}. Прочитай и расскажи.`;
-    else if (filePath) text = `Файл: ${filePath}. ${text}`;
+    if (filePath && !text) text = `User sent a file: ${filePath}. Read and describe it.`;
+    else if (filePath) text = `File: ${filePath}. ${text}`;
     if (!text) return reply.send({ ok: true });
 
     // Classify BEFORE adding topic prefix — so "привет" in topics still matches banter regex
     const cls = classify(text);
-    if (threadId) text = `[Топик #${threadId}] ${text}`;
+    if (threadId) text = `[Topic #${threadId}] ${text}`;
 
     // If there's an active task, skip banter/junk — "да", "ок", "хорошо" might be confirmations
     const key = taskKey(chatId, threadId);
@@ -674,7 +674,7 @@ app.post("/webhooks/telegram", async (request, reply) => {
 
     // Real question — enqueue with concurrency control
     if (shuttingDown) {
-      await tgSend(chatId, "🔄 Перезапускаюсь, отправь через 30 секунд.", threadId);
+      await tgSend(chatId, "🔄 Restarting, try again in 30 seconds.", threadId);
       return reply.send({ ok: true });
     }
     reply.send({ ok: true });
@@ -695,14 +695,14 @@ async function processQuestion(q: string, chatId: string, threadId?: number): Pr
   // Heartbeat: tell user we're still alive every 2 min
   task.heartbeat = setInterval(() => {
     const elapsed = Math.round((Date.now() - task.startedAt) / 60000);
-    tgSend(chatId, `⚙️ Всё ещё работаю... (${elapsed} мин)`, threadId);
+    tgSend(chatId, `⚙️ Still working... (${elapsed} min)`, threadId);
   }, HEARTBEAT_INTERVAL);
 
   try {
     const context = await recallContext(q, threadId ? String(threadId) : undefined);
     const session = getRecentSession();
     const facts = pinnedFacts.get(chatId);
-    const prefix = [context, session, facts?.length ? `Факты:\n${facts.map(f => `- ${f}`).join("\n")}` : ""].filter(Boolean).join("\n\n");
+    const prefix = [context, session, facts?.length ? `Pinned facts:\n${facts.map(f => `- ${f}`).join("\n")}` : ""].filter(Boolean).join("\n\n");
 
     console.log("CLAUDE:", q.slice(0, 60));
     const { text, cost } = await callClaude(prefix ? `${prefix}\n\n${q}` : q, task);
@@ -711,7 +711,7 @@ async function processQuestion(q: string, chatId: string, threadId?: number): Pr
     clearInterval(typing);
     clearInterval(task.heartbeat);
 
-    if (!text) { await tgSend(chatId, "Нет ответа. Переформулируй.", threadId); return; }
+    if (!text) { await tgSend(chatId, "No response. Try rephrasing.", threadId); return; }
 
     // Store response in all memory layers
     const topicStr = threadId ? String(threadId) : undefined;
@@ -721,16 +721,16 @@ async function processQuestion(q: string, chatId: string, threadId?: number): Pr
       .catch(e => console.error("STORE_VEC_ERR:", e instanceof Error ? e.message : e));
     appendSessionLog(`Q: ${q.slice(0, 150)} → A: ${text.slice(0, 150)}`);
 
-    const full = text + (cost > 0 ? `\n\n_Стоимость: $${cost.toFixed(2)}_` : "");
+    const full = text + (cost > 0 ? `\n\n_Cost: $${cost.toFixed(2)}_` : "");
     await sendLong(chatId, full, threadId);
 
     // Process follow-up messages that arrived while we were working
     if (task.followUps.length > 0) {
-      const followUp = task.followUps.map((f, i) => `[Доп. сообщение ${i + 1}]: ${f}`).join("\n");
+      const followUp = task.followUps.map((f, i) => `[Follow-up ${i + 1}]: ${f}`).join("\n");
       console.log(`FOLLOW-UP: ${task.followUps.length} messages for ${key}`);
       activeTasks.delete(key);
       // Re-enqueue combined follow-ups as a new task
-      enqueueTask(chatId, `Контекст предыдущего ответа: ${text.slice(0, 3000)}\n\n${followUp}`, threadId);
+      enqueueTask(chatId, `Previous answer context: ${text.slice(0, 3000)}\n\n${followUp}`, threadId);
     } else {
       activeTasks.delete(key);
     }
@@ -767,7 +767,7 @@ setInterval(() => {
         if (task.child.pid) try { process.kill(task.child.pid, "SIGKILL"); } catch {}
       }
       if (task.heartbeat) clearInterval(task.heartbeat);
-      tgSend(task.chatId, `⏱ Задача отменена (превышен лимит ${Math.round(CLAUDE_TIMEOUT / 60000)} мин). Попробуй разбить на части.`, task.threadId);
+      tgSend(task.chatId, `⏱ Task cancelled (exceeded ${Math.round(CLAUDE_TIMEOUT / 60000)} min limit). Try breaking into parts.`, task.threadId);
       activeTasks.delete(key);
       runningCount = Math.max(0, runningCount - 1);
       drainQueue();
@@ -787,7 +787,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
 
   // Notify queued task owners immediately
   for (const item of taskQueue) {
-    tgSend(item.chatId, "🔄 Бот перезапускается. Отправь запрос ещё раз через 30 секунд.", item.threadId);
+    tgSend(item.chatId, "🔄 Bot is restarting. Send your request again in 30 seconds.", item.threadId);
   }
   taskQueue.length = 0;
 
@@ -807,7 +807,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
       for (const [, task] of activeTasks) {
         if (task.heartbeat) clearInterval(task.heartbeat);
         const elapsed = Math.round((Date.now() - task.startedAt) / 60000);
-        tgSend(task.chatId, `🔄 Бот перезапустился пока я работала (${elapsed} мин). Отправь запрос ещё раз.`, task.threadId);
+        tgSend(task.chatId, `🔄 Bot restarted while working (${elapsed} min). Please resend your request.`, task.threadId);
       }
       setTimeout(() => process.exit(0), 2000); // 2s for messages to send
     }
