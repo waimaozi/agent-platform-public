@@ -32,7 +32,7 @@ command -v pandoc &>/dev/null || apt-get install -y pandoc
 npm install -g @anthropic-ai/claude-code 2>/dev/null || true
 echo "[1/7] Done"
 
-# ── 2. Create non-root user (Claude Code refuses root) ──
+# ── 2. Create non-root user + authenticate Claude Code ──
 echo "[2/7] Setting up bot user..."
 if ! id "$BOT_USER" &>/dev/null; then
   adduser --disabled-password --gecos "Agent Platform Bot" "$BOT_USER"
@@ -40,6 +40,23 @@ if ! id "$BOT_USER" &>/dev/null; then
   echo "  Created user: $BOT_USER"
 else
   echo "  User $BOT_USER already exists"
+fi
+
+# Check if Claude Code is authenticated for the bot user
+if ! su - "$BOT_USER" -c "claude auth status" &>/dev/null 2>&1; then
+  echo ""
+  echo "╔══════════════════════════════════════════╗"
+  echo "║  Claude Code needs authentication.       ║"
+  echo "║                                          ║"
+  echo "║  A browser link will appear — open it,   ║"
+  echo "║  log in, and return here.                ║"
+  echo "╚══════════════════════════════════════════╝"
+  echo ""
+  su - "$BOT_USER" -c "claude auth login"
+  echo ""
+  echo "  Claude Code authenticated!"
+else
+  echo "  Claude Code already authenticated"
 fi
 echo "[2/7] Done"
 
