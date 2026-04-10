@@ -68,7 +68,7 @@ echo "[4/7] Done"
 
 # ── 5. SSL + nginx ──
 echo "[5/7] Configuring SSL + nginx..."
-SERVER_IP=$(curl -s ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
+SERVER_IP=$(curl -4 -s ifconfig.me 2>/dev/null || curl -4 -s icanhazip.com 2>/dev/null || hostname -I | awk '{print $1}')
 if [ ! -f /etc/nginx/ssl/agent-platform.crt ]; then
   mkdir -p /etc/nginx/ssl
   openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
