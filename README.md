@@ -66,42 +66,31 @@ With memory: same question that cost $0.30 (Claude exploring files) costs $0.04 
 - **10 min timeout** — handles complex multi-tool tasks
 - **50 tool turns** — Claude can read files, curl APIs, run bash in one call
 
-## Setup
+## Install (copy-paste on a fresh VPS)
 
+Before you start: create a Telegram bot via @BotFather and save the token.
+
+**One command:**
 ```bash
-# 1. Create Telegram bot via @BotFather, get token
-# 2. Install Claude Code CLI
-npm install -g @anthropic-ai/claude-code
-claude  # login with OAuth
+curl -fsSL https://raw.githubusercontent.com/waimaozi/agent-platform-public/main/install.sh | bash
+```
 
-# 3. Clone and configure
-git clone https://github.com/waimaozi/agent-platform-public
-cd agent-platform-public
-cp .env.example .env
-# Edit .env with your keys
+This installs everything (Node, Docker, nginx, SSL, Postgres) and opens a setup wizard at `http://YOUR_IP:8888`. Follow the steps, paste your Telegram token, choose a personality — done.
 
-# 4. Install dependencies
-pnpm install
+**What you need:**
+- A VPS (Ubuntu 22+, 2GB+ RAM)
+- A Telegram bot token (free, from @BotFather)
+- Claude Code account on the VPS (`claude` CLI logged in as the `agent` user)
 
-# 5. Start Postgres (for knowledge graph)
-docker-compose up -d
+**Optional (for memory features):**
+- Pinecone API key + index (1024 dims, cosine) + Cohere API key → vector memory
+- Groq API key → knowledge graph extraction
 
-# 6. Create a Pinecone index
-# Go to pinecone.io, create "agent-memory" index, 1024 dimensions, cosine
-
-# 7. Customize personality
-cp docs/examples/SOUL.md my-soul.md
-# Edit with your agent's personality
-
-# 8. Set Telegram webhook
-openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-  -keyout ssl.key -out ssl.crt -subj '/CN=YOUR_IP'
-curl -F "url=https://YOUR_IP:8443/webhooks/telegram" \
-     -F "certificate=@ssl.crt" \
-     https://api.telegram.org/botYOUR_TOKEN/setWebhook
-
-# 9. Run
-npx tsx simple-bot.ts
+**After install:**
+```bash
+journalctl -u agent-platform -f    # logs
+systemctl restart agent-platform    # restart
+curl -k https://YOUR_IP:8443/health # health check
 ```
 
 ## Commands
