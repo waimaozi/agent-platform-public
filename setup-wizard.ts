@@ -401,20 +401,20 @@ app.post("/api/validate-keys", async (request) => {
     } catch { errors.push("Cohere: could not connect"); }
   }
 
-  if (!pineconeKey && !cohereKey) warnings.push("No vector memory — bot works but won\t remember past conversations);
+  if (!pineconeKey && !cohereKey) warnings.push("No vector memory — bot works but won't remember past conversations");
 
   if (groqKey) {
     try {
-      const res = await fetch(https://api.groq.com/openai/v1/chat/completions, {
-        method: POST,
-        headers: { Authorization: , Content-Type: application/json },
-        body: JSON.stringify({ model: llama-3.1-8b-instant, messages: [{ role: user, content: hi }], max_tokens: 5 }),
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${groqKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "llama-3.1-8b-instant", messages: [{ role: "user", content: "hi" }], max_tokens: 5 }),
         signal: AbortSignal.timeout(10_000),
       });
-      if (!res.ok) errors.push(Groq: invalid API key);
-    } catch { errors.push(Groq: could not connect); }
+      if (!res.ok) errors.push("Groq: invalid API key");
+    } catch { errors.push("Groq: could not connect"); }
   } else {
-    warnings.push(No knowledge graph — bot works but won	 extract entity relationships");
+    warnings.push("No knowledge graph — bot works but will not extract entity relationships");
   }
 
   if (errors.length === 0) {
