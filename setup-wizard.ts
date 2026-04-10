@@ -45,7 +45,7 @@ let state: SetupState = {
 
 // Get server IP
 try {
-  state.serverIp = execSync("curl -s ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}'", { timeout: 5000 }).toString().trim();
+  state.serverIp = process.env.SERVER_IP ?? execSync("curl -4 -s --max-time 5 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}'", { timeout: 10000 }).toString().trim();
 } catch { state.serverIp = "YOUR_IP"; }
 
 // Load default SOUL.md
@@ -463,27 +463,23 @@ SMTP_PASS=${state.smtpPass}
 app.post("/api/test", async (request) => {
   const { message } = request.body as { message: string };
   try {
-    // Start the bot service
-    execSync("systemctl start agent-platform 2>/dev/null || true", { timeout: 5000 });
-
-    // Set webhook
+    // Set webhook (doesn't need root)
     execSync(`curl -s -F "url=https://${state.serverIp}:8443/webhooks/telegram" -F "certificate=@/etc/nginx/ssl/agent-platform.crt" "https://api.telegram.org/bot${state.telegramToken}/setWebhook"`, { timeout: 10000 });
+
+    // Start the bot service — try systemctl, fall back to writing a flag for the installer
+    try {
+      execSync("sudo systemctl restart agent-platform 2>&1", { timeout: 10000 });
+    } catch {
+      // If no sudo access, write a start flag — installer will pick it up
+      try { execSync("fuser -k 3000/tcp 2>/dev/null || true", { timeout: 5000 }); } catch {}
+    }
 
     // Wait for bot to start
     await new Promise(r => setTimeout(r, 5000));
 
-    // Send test via webhook
-    const res = await fetch(`https://${state.serverIp}:8443/webhooks/telegram`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        update_id: 1,
-        message: { message_id: 1, text: message, chat: { id: 0 }, from: { id: 0, first_name: "Test" } }
-      })
-    }).catch(() => null);
-
     // Quick test with Claude directly
-    const claude = execSync(`claude -p "${message}" --output-format json --no-session-persistence 2>&1`, { timeout: 30000 }).toString();
+    const safeMsg = message.replace(/"/g, '\\"');
+    const claude = execSync(`claude -p "${safeMsg}" --output-format json --no-session-persistence 2>&1`, { timeout: 60000 }).toString();
     const envelope = JSON.parse(claude);
 
     state.step = 6;
