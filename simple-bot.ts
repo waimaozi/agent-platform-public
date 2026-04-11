@@ -15,7 +15,7 @@ const PORT = Number(process.env.API_PORT ?? 3000);
 const HOST = process.env.API_HOST ?? "0.0.0.0";
 const CLAUDE_TIMEOUT = 2_700_000; // 45 min for complex multi-step tasks
 const MAX_PROMPT_LENGTH = 30_000; // truncate huge messages to avoid timeouts
-const MAX_CONCURRENT_CLAUDE = 2; // max parallel Claude processes
+const MAX_CONCURRENT_CLAUDE = Number(process.env.MAX_CONCURRENT ?? 5); // max parallel Claude processes
 const HEARTBEAT_INTERVAL = 120_000; // 2 min progress updates to user
 const SIGKILL_GRACE = 10_000; // 10s after SIGTERM before SIGKILL
 
