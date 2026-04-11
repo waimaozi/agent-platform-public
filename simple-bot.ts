@@ -13,7 +13,7 @@ const CLAUDE_PATH = process.env.CLAUDE_CODE_PATH ?? "claude";
 const SOUL_PATH = process.env.MIRA_SOUL_PATH ?? "/opt/agent-platform/agent-soul/FULL-CONTEXT.md";
 const PORT = Number(process.env.API_PORT ?? 3000);
 const HOST = process.env.API_HOST ?? "0.0.0.0";
-const CLAUDE_TIMEOUT = 1_800_000; // 30 min for complex multi-step tasks
+const CLAUDE_TIMEOUT = 2_700_000; // 45 min for complex multi-step tasks
 const MAX_PROMPT_LENGTH = 30_000; // truncate huge messages to avoid timeouts
 const MAX_CONCURRENT_CLAUDE = 2; // max parallel Claude processes
 const HEARTBEAT_INTERVAL = 120_000; // 2 min progress updates to user
@@ -571,7 +571,7 @@ ${HAS_EMAIL ? "/email to Subject | Body — send email\n" : ""}/cost — pricing
 
 const pinnedFacts: Map<string, string[]> = new Map();
 
-function handleCommand(text: string, chatId: string): string | null {
+async function handleCommand(text: string, chatId: string): Promise<string | null> {
   const cmd = text.split(/\s+/)[0].toLowerCase();
   const rest = text.slice(cmd.length).trim();
   switch (cmd) {
@@ -712,7 +712,7 @@ app.post("/webhooks/telegram", async (request, reply) => {
 
     if (cls === "junk" && !hasActiveTask) return reply.send({ ok: true });
     if (cls === "banter" && !hasActiveTask) { await tgSend(chatId, BANTER_REPLIES[Math.floor(Math.random() * BANTER_REPLIES.length)], threadId); return reply.send({ ok: true }); }
-    if (cls === "command") { const r = handleCommand(text, chatId); if (r) await tgSend(chatId, r, threadId); return reply.send({ ok: true }); }
+    if (cls === "command") { const r = await handleCommand(text, chatId); if (r) await tgSend(chatId, r, threadId); return reply.send({ ok: true }); }
 
     // Real question — enqueue with concurrency control
     if (shuttingDown) {
