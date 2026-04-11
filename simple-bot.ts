@@ -746,8 +746,12 @@ async function processQuestion(q: string, chatId: string, threadId?: number): Pr
     const facts = pinnedFacts.get(chatId);
     const prefix = [context, session, facts?.length ? `Pinned facts:\n${facts.map(f => `- ${f}`).join("\n")}` : ""].filter(Boolean).join("\n\n");
 
+    // Tell Claude her time limit and checkpoint path
+    const timeLimit = `\n\n[SYSTEM: You have ${Math.round(CLAUDE_TIMEOUT / 60000)} minutes for this task. Save progress to /tmp/checkpoint-${Date.now()}.md periodically. If you think the task needs more time than you have, break it into parts — deliver what you can now, and tell the user what remains.]`;
+
     console.log("CLAUDE:", q.slice(0, 60));
-    const { text, cost } = await callClaude(prefix ? `${prefix}\n\n${q}` : q, task);
+    const fullPrompt = (prefix ? `${prefix}\n\n${q}` : q) + timeLimit;
+    const { text, cost } = await callClaude(fullPrompt, task);
     const elapsed = Math.round((Date.now() - task.startedAt) / 1000);
     console.log(`DONE: ${text.length} chars $${cost.toFixed(2)} ${elapsed}s`);
     clearInterval(typing);
