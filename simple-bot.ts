@@ -82,6 +82,21 @@ async function initDB(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_triples_subject ON knowledge_triples(subject);
       CREATE INDEX IF NOT EXISTS idx_triples_object ON knowledge_triples(object);
     `);
+    // Tasks table — auto-populated by enrichment pipeline when type="task"
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS tasks (
+        id SERIAL PRIMARY KEY,
+        summary TEXT NOT NULL,
+        project TEXT DEFAULT 'general',
+        entities TEXT DEFAULT '',
+        source_text TEXT,
+        status TEXT DEFAULT 'open',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        completed_at TIMESTAMPTZ
+      );
+      CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+      CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project);
+    `);
     console.log("Database tables ready");
   } catch (err) {
     console.error("DB INIT:", err instanceof Error ? err.message : err);
@@ -239,6 +254,14 @@ Keep project names consistent (e.g. always "chemitech-sgr", "byplan", "agent-pla
       }
     }
 
+    // If it's a task, store in tasks table
+    if (tags.type === "task" && tags.summary) {
+      await pool.query(
+        "INSERT INTO tasks (summary, project, entities, source_text) VALUES ($1, $2, $3, $4)",
+        [tags.summary, tags.project ?? "general", (tags.entities ?? []).join(", "), text.slice(0, 500)]
+      ).catch(() => {});
+    }
+
     // Update Pinecone vector with enriched metadata (if we have a vector ID)
     if (HAS_VECTOR && vectorId) {
       // Pinecone update API — add tags without re-embedding
@@ -339,6 +362,7 @@ async function recallContext(query: string, topicId?: string): Promise<string> {
   // Tell Claude how to dig deeper if the auto-recall isn't enough
   parts.push(`If you need more context, you can query directly:
 - DB: docker exec $(docker ps -q -f name=postgres) psql -U postgres -d agent_platform -c "SELECT text FROM memories WHERE text LIKE '%keyword%' ORDER BY ts DESC LIMIT 5;"
+- Tasks: docker exec $(docker ps -q -f name=postgres) psql -U postgres -d agent_platform -c "SELECT id, summary, project, status FROM tasks WHERE status='open' ORDER BY created_at DESC;"
 - Files: grep -r 'keyword' /opt/agent-platform/agent-soul/
 - Session: cat /opt/agent-platform/data/session-log.md | tail -50`);
 
@@ -539,7 +563,9 @@ function callClaude(prompt: string, task?: ActiveTask): Promise<{ text: string; 
 const HELP = `Commands:
 /start — welcome
 /help — command list
-/status — current tasks
+/status — active Claude tasks
+/tasks — open task list
+/done <id> — mark task complete
 /pin <fact> — remember a fact
 ${HAS_EMAIL ? "/email to Subject | Body — send email\n" : ""}/cost — pricing info`;
 
@@ -583,6 +609,22 @@ function handleCommand(text: string, chatId: string): string | null {
       if (taskQueue.length > 0) lines.push(`⏳ Queued: ${taskQueue.length}`);
       lines.push(`\nClaude processes: ${runningCount}/${MAX_CONCURRENT_CLAUDE}`);
       return lines.join("\n");
+    }
+    case "/tasks": {
+      try {
+        const res = await getPool().query("SELECT id, summary, project, status, created_at::date as date FROM tasks WHERE status='open' ORDER BY created_at DESC LIMIT 15");
+        if (res.rows.length === 0) return "📋 No open tasks.";
+        return "📋 Open tasks:\n" + res.rows.map((r: { id: number; summary: string; project: string; date: string }) =>
+          `#${r.id} [${r.project}] ${r.summary} (${r.date})`).join("\n");
+      } catch { return "📋 Tasks not available (DB error)"; }
+    }
+    case "/done": {
+      const id = parseInt(rest);
+      if (!id) return "Usage: /done <task_id>";
+      try {
+        await getPool().query("UPDATE tasks SET status='done', completed_at=NOW() WHERE id=$1", [id]);
+        return `✅ Task #${id} marked done.`;
+      } catch { return "Error updating task"; }
     }
     case "/cost": return "📊 Simple question ~$0.04, complex task ~$0.15-0.50";
     default: return null;
